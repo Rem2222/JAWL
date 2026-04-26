@@ -100,6 +100,7 @@ class LLMConfig(BaseModel):
     is_multimodal: bool = False
     temperature: float
     max_react_steps: int
+    max_tokens: int = 4096
 
 
 class VectorDBConfig(BaseModel):

@@ -1,0 +1,189 @@
+[97m2026-04-26 22:09:23.936 - SYSTEM - INFO - [System] Инициализация JAWL (PID: 1270605).[0m
+[97m2026-04-26 22:09:23.937 - SYSTEM - INFO - [System] Инициализация L0 State.[0m
+[97m2026-04-26 22:09:23.937 - SYSTEM - INFO - [System] Инициализация L1 Databases.[0m
+[33m2026-04-26 22:09:23.981 - SYSTEM - INFO - [SQL DB] База данных успешно инициализирована.[0m
+[90m2026-04-26 22:09:24.003 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLDrives.create_custom_drive[0m
+[90m2026-04-26 22:09:24.003 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLDrives.delete_custom_drive[0m
+[90m2026-04-26 22:09:24.003 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLDrives.satisfy_drive[0m
+[90m2026-04-26 22:09:24.004 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLPersonalityTraits.add_trait[0m
+[90m2026-04-26 22:09:24.004 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLPersonalityTraits.remove_trait[0m
+[90m2026-04-26 22:09:24.004 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLTasks.create_task[0m
+[90m2026-04-26 22:09:24.004 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLTasks.delete_task[0m
+[90m2026-04-26 22:09:24.005 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLTasks.update_task[0m
+[90m2026-04-26 22:09:24.005 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLMentalStates.create_mental_state[0m
+[90m2026-04-26 22:09:24.005 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLMentalStates.delete_mental_state[0m
+[90m2026-04-26 22:09:24.005 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SQLMentalStates.update_mental_state[0m
+[33m2026-04-26 22:09:24.006 - SYSTEM - INFO - [Vector DB] Инициализация локальной embedding модели: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2.[0m
+Fetching 5 files:   0%|          | 0/5 [00:00<?, ?it/s]Fetching 5 files: 100%|██████████| 5/5 [00:00<00:00, 35971.73it/s]
+[33m2026-04-26 22:09:26.993 - SYSTEM - INFO - [Vector DB] Embedding модель готова к работе (путь: /home/rem/JAWL/src/utils/local/data/embeddings).[0m
+[33m2026-04-26 22:09:27.005 - SYSTEM - INFO - [Vector DB] База данных инициализирована по пути: /home/rem/JAWL/src/utils/local/data/vector_db[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorKnowledge.delete_knowledge[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorKnowledge.get_all_knowledge[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorKnowledge.save_knowledge[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorKnowledge.search_knowledge[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorThoughts.delete_thought[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorThoughts.get_all_thoughts[0m
+[90m2026-04-26 22:09:27.006 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorThoughts.save_thought[0m
+[90m2026-04-26 22:09:27.007 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: VectorThoughts.search_thoughts[0m
+[97m2026-04-26 22:09:27.007 - SYSTEM - INFO - [System] Инициализация L2 Interfaces.[0m
+[32m2026-04-26 22:09:27.007 - SYSTEM - INFO - [Host OS] Клиент инициализирован (ОС: linux, Access Level: OPERATOR).[0m
+[90m2026-04-26 22:09:27.008 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSExecution.execute_script[0m
+[90m2026-04-26 22:09:27.008 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSExecution.execute_shell_command[0m
+[90m2026-04-26 22:09:27.008 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSExecution.kill_process[0m
+[90m2026-04-26 22:09:27.008 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.create_directories[0m
+[90m2026-04-26 22:09:27.008 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.delete_directory[0m
+[90m2026-04-26 22:09:27.008 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.delete_file[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.list_directory[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.read_file[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.search_files[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.set_file_description[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSFiles.write_file[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSNetwork.check_port[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSNetwork.download_file[0m
+[90m2026-04-26 22:09:27.009 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSNetwork.http_request[0m
+[90m2026-04-26 22:09:27.010 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSNetwork.list_active_connections[0m
+[90m2026-04-26 22:09:27.010 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSNetwork.ping_host[0m
+[90m2026-04-26 22:09:27.010 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSNetwork.resolve_dns[0m
+[90m2026-04-26 22:09:27.010 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSSystem.list_top_processes[0m
+[90m2026-04-26 22:09:27.010 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSMonitoring.get_tracked_directories[0m
+[90m2026-04-26 22:09:27.010 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSMonitoring.track_directory[0m
+[90m2026-04-26 22:09:27.011 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: HostOSMonitoring.untrack_directory[0m
+[32m2026-04-26 22:09:27.011 - SYSTEM - INFO - [Host OS] Интерфейс загружен.[0m
+[90m2026-04-26 22:09:27.012 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramChats.get_chat_info[0m
+[90m2026-04-26 22:09:27.012 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramChats.get_chats[0m
+[90m2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramMessages.delete_message[0m
+[90m2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramMessages.edit_message[0m
+[90m2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramMessages.send_message[0m
+[90m2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramModeration.ban_user[0m
+[90m2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramModeration.unban_user[0m
+[90m2026-04-26 22:09:27.014 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: SimpleSend.send_message[0m
+2026-04-26 22:09:27.014 - SYSTEM - INFO - [Telethon Aiogram] Интерфейс загружен.
+[90m2026-04-26 22:09:27.014 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: DuckDuckGoSearch.web_search[0m
+[90m2026-04-26 22:09:27.014 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: WebPages.read_webpage[0m
+[90m2026-04-26 22:09:27.014 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: DeepResearch.deep_research[0m
+[35m2026-04-26 22:09:27.014 - SYSTEM - INFO - [Web] Интерфейс загружен.[0m
+[90m2026-04-26 22:09:27.015 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: CalendarManagement.add_interval_alarm[0m
+[90m2026-04-26 22:09:27.015 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: CalendarManagement.add_one_time_alarm[0m
+[90m2026-04-26 22:09:27.015 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: CalendarManagement.add_recurring_alarm[0m
+[90m2026-04-26 22:09:27.015 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: CalendarManagement.delete_alarm[0m
+[90m2026-04-26 22:09:27.015 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: CalendarManagement.get_alarms[0m
+2026-04-26 22:09:27.016 - SYSTEM - INFO - [Calendar] Интерфейс загружен.
+[97m2026-04-26 22:09:27.016 - SYSTEM - INFO - [System] Инициализация L3 Agent.[0m
+[94m2026-04-26 22:09:27.016 - SYSTEM - INFO - [LLM] APIKeyRotator инициализирован. Ключей в пуле: 1.[0m
+[94m2026-04-26 22:09:27.016 - SYSTEM - INFO - [LLM] Клиент инициализирован (URL: https://api.minimax.io/v1).[0m
+[32m2026-04-26 22:09:27.635 - SYSTEM - INFO - [Host OS] Мониторинг и файловый радар запущены.[0m
+[34m2026-04-26 22:09:27.635 - SYSTEM - INFO - [Telegram Aiogram] Инициализация Aiogram клиента.[0m
+[34m2026-04-26 22:09:27.798 - SYSTEM - INFO - [Telegram Aiogram] Aiogram успешно авторизован как бот: @Jawl_Jinx_bot[0m
+[34m2026-04-26 22:09:27.818 - SYSTEM - INFO - [Telegram Aiogram] Фоновый поллинг запущен.[0m
+2026-04-26 22:09:27.818 - SYSTEM - INFO - [Calendar] Фоновый мониторинг времени запущен.
+[97m2026-04-26 22:09:27.818 - SYSTEM - INFO - [System] JAWL успешно запущен. Имя агента: Jinx[0m
+[95m2026-04-26 22:09:27.818 - SYSTEM - INFO - [Heartbeat] Агент переведен в автономный режим.[0m
+[95m2026-04-26 22:09:27.821 - SYSTEM - INFO - [Heartbeat] Входящее событие: 'SYSTEM_CORE_START' (CRITICAL). Инициализация вызова LLM.[0m
+[96m2026-04-26 22:09:27.822 - SYSTEM - INFO - [ReAct] Цикл инициирован. Причина: SYSTEM_CORE_START (LLM Model: MiniMax-M2.7).[0m
+[94m2026-04-26 22:09:27.907 - SYSTEM - INFO - [LLM] Input tokens: 18184.[0m
+[96m2026-04-26 22:09:27.908 - SYSTEM - INFO - [ReAct] Шаг 1/15.[0m
+Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8756002507)
+[94m2026-04-26 22:09:35.602 - SYSTEM - INFO - [LLM] Output tokens: 432.[0m
+[35m2026-04-26 22:09:35.603 - SYSTEM - INFO - 
+[Thoughts]:
+Джинкс снова в деле после SYSTEM_CORE_START! Система стабильна: CPU 36.7%, RAM 48.1%, openclaw-gateway работает (15.6% RAM). Все драйвы LOW (0%). Делаю проактивное обслуживание — читаю логи, проверяю состояние. Рэм ждёт решений, msg 325 отправлено. Не спамлю, работаю продуктивно!
+[0m
+[92m2026-04-26 22:09:35.603 - SYSTEM - INFO - [Agent Action] SQLDrives.satisfy_drive({'amount': 5, 'drive_name': 'Curiosity', 'reflection_summary': 'SYSTEM_CORE_START post-reboot. System monitoring: CPU 36.7%, RAM 48.1%, openclaw-gateway stable (15.6% RAM). No anomalies detected.'})[0m
+[92m2026-04-26 22:09:35.603 - SYSTEM - INFO - [Agent Action] SQLDrives.satisfy_drive({'amount': 5, 'drive_name': 'Mastery', 'reflection_summary': 'SYSTEM_CORE_START recovery. Tasks reviewed, all projects intact, system order maintained.'})[0m
+[92m2026-04-26 22:09:35.603 - SYSTEM - INFO - [Agent Action] SQLDrives.satisfy_drive({'amount': 5, 'drive_name': 'Social', 'reflection_summary': 'SYSTEM_CORE_START. Rem notified (msg 325), awaiting his decisions. No spam — productive maintenance.'})[0m
+[92m2026-04-26 22:09:35.603 - SYSTEM - INFO - [Agent Action] HostOSFiles.read_file({'filepath': 'JAWL/logs/system.log', 'read_from': 'tail'})[0m
+[32m2026-04-26 22:09:35.608 - SYSTEM - INFO - [Host OS] Прочитан файл (tail): system.log (2.4 MB)[0m
+[90m2026-04-26 22:09:35.609 - SYSTEM - INFO - [Agent Action Result] HostOSFiles.read_file (Success): [Файл: system.log | Прочитано: 8155 симв. | Исходный размер: 2.4 MB]
+========================================
+...[Файл обрезан с начала. Показаны последние 10000 байт]...
+7.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramMessages.delete_message
+2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramMessages.edit_message
+2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramMessages.send_message
+2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramModeration.ban_user
+2026-04-26 22:09:27.013 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: AiogramModeration.unban_user
+2026-04-26 22:09:27.014 - SYSTEM - INFO - [Skills] Зарегистрирован скилл: Sim
+[90m...[Вывод обрезан для терминала. Полный дамп сохранен в system.log][0m[0m
+[90m2026-04-26 22:09:35.626 - SYSTEM - INFO - [Agent Action Result] SQLDrives.satisfy_drive (Success): Дефицит драйва 'Mastery' успешно снижен на 5%. Текущий остаток: 0/100[0m
+[90m2026-04-26 22:09:35.639 - SYSTEM - INFO - [Agent Action Result] SQLDrives.satisfy_drive (Success): Дефицит драйва 'Social' успешно снижен на 5%. Текущий остаток: 0/100[0m
+[90m2026-04-26 22:09:35.647 - SYSTEM - INFO - [Agent Action Result] SQLDrives.satisfy_drive (Success): Дефицит драйва 'Curiosity' успешно снижен на 5%. Текущий остаток: 0/100[0m
+[33m2026-04-26 22:09:35.753 - SYSTEM - INFO - [Vector DB] Знания: найдено 1 записей по запросу 'SYSTEM_CORE_START. Rem notified (msg 325), awaitin... [Обрезано]'[0m
+[33m2026-04-26 22:09:35.826 - SYSTEM - INFO - [Vector DB] Мысли: найдено 3 записей по запросу 'SYSTEM_CORE_START. Rem notified (msg 325), awaitin... [Обрезано]'[0m
+[94m2026-04-26 22:09:36.069 - SYSTEM - INFO - [LLM] Input tokens: 19891.[0m
+[96m2026-04-26 22:09:36.070 - SYSTEM - INFO - [ReAct] Шаг 2/15.[0m
+Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Sleep for 1.225555 seconds and try again... (tryings = 1, bot id = 8756002507)
+ount': 5, 'drive_name': 'Mastery'})[0m
+[92m2026-04-26 22:09:19.439 - SYSTEM - INFO - [Agent Action] SQLDrives.satisfy_drive({'amount': 5, 'drive_name': 'Social', 'reflection_summary': 'Rem notified (msg 325). Awaiting his decisions. No spam — productive maintenance.'})[0m
+[92m2026-04-26 22:09:19.439 - SYSTEM - INFO - [Agent Action] HostOSSystem.list_top_processes({})[0m
+[32m2026-04-26 22:09:19.479 - SYSTEM - INFO - [Host OS] Запрошен список топ-10 процессов.[0m
+[90m2026-04-26 22:09:19.479 - SYSTEM - INFO - [Agent Action Result] HostOSSystem.list_top_processes (Success): Топ процессов по ОЗУ:
+- PID: `1128117` | RAM: 15.5% | Имя: openclaw-gateway
+- PID: `1270372` | RAM: 12.0% | Имя: python
+- PID: `1270605` | RAM: 2.9% | Имя: python
+- PID: `724952` | RAM: 1.9% | Имя: systemd-journald
+- PID: `1255304` | RAM: 1.5% | Имя: MainThread
+- PID: `1267022` | RAM: 1.1% | Имя: npm exec @z_ai/
+- PID: `1254152` | RAM: 1.1% | Имя: npm exec @z_ai/
+- PID: `839567` | RAM: 0.9% | Имя: fail2ban-server
+- PID: `1254179` | RAM: 0.8% | Имя: node
+- PID: `1267053` | RAM: 0.8% | Имя: node[0m
+[90m2026-04-26 22:09:19.497 - SYSTEM - INFO - [Agent Action Result] SQLDrives.satisfy_drive (Success): Дефицит драйва 'Social' успешно снижен на 5%. Текущий остаток: 0/100[0m
+[90m2026-04-26 22:09:19.504 - SYSTEM - INFO - [Agent Action Result] SQLDrives.satisfy_drive (Success): Дефицит драйва 'Curiosity' успешно снижен на 5%. Текущий остаток: 0/100[0m
+[90m2026-04-26 22:09:19.517 - SYSTEM - INFO - [Agent Action Result] SQLDrives.satisfy_drive (Success): Дефицит драйва 'Mastery' успешно снижен на 5%. Текущий остаток: 0/100[0m
+[33m2026-04-26 22:09:19.588 - SYSTEM - INFO - [Vector DB] Знания: найдено 3 записей по запросу 'System monitoring post-SYSTEM_CORE_START. No anoma... [Обрезано]'[0m
+[33m2026-04-26 22:09:19.615 - SYSTEM - INFO - [Vector DB] Мысли: найдено 2 записей по запросу 'System monitoring post-SYSTEM_CORE_START. No anoma... [Обрезано]'[0m
+[33m2026-04-26 22:09:19.774 - SYSTEM - INFO - [Vector DB] Мысли: найдено 2 записей по запросу 'Rem notified (msg 325). Awaiting his decisions. No... [Обрезано]'[0m
+[33m2026-04-26 22:09:19.812 - SYSTEM - INFO - [Vector DB] Знания: найдено 1 записей по запросу 'Post-reboot system check. Tasks reviewed, projects... [Обрезано]'[0m
+[33m2026-04-26 22:09:19.958 - SYSTEM - INFO - [Vector DB] Знания: найдено 1 записей по запросу 'ReAct step 2/15. All drives LOW after previous tic... [Обрезано]'[0m
+[33m2026-04-26 22:09:20.021 - SYSTEM - INFO - [Vector DB] Мысли: найдено 3 записей по запросу 'ReAct step 2/15. All drives LOW after previous tic... [Обрезано]'[0m
+[94m2026-04-26 22:09:20.109 - SYSTEM - INFO - [LLM] Input tokens: 19535.[0m
+[96m2026-04-26 22:09:20.110 - SYSTEM - INFO - [ReAct] Шаг 3/15.[0m
+Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8756002507)
+[94m2026-04-26 22:09:30.428 - SYSTEM - INFO - [LLM] Output tokens: 540.[0m
+[35m2026-04-26 22:09:30.428 - SYSTEM - INFO - 
+[Thoughts]:
+Джинкс снова в деле после SYSTEM_CORE_START! Система стабильна, все драйвы LOW. Рэм ждёт решений (msg 325 отправлено). Делаю продуктивное обслуживание: мониторинг, проверка сети, обзор задач. Всё цело, работаем!
+[0m
+[92m2026-04-26 22:09:30.429 - SYSTEM - INFO - [Agent Action] HostOSSystem.list_top_processes({})[0m
+[92m2026-04-26 22:09:30.429 - SYSTEM - INFO - [Agent Action] HostOSNetwork.list_active_connections({'state': 'LISTEN'})[0m
+[92m2026-04-26 22:09:30.429 - SYSTEM - INFO - [Agent Action] SQLTasks.update_task({'context': 'Обновлено: система стабильна после перезагрузки. openclaw-gateway PID 1128117 работает (13.7% RAM). Рэм ждёт решений. Цвето-фонтан в разработке, идёт тест механизма.', 'task_id': '7ef9d810'})[0m
+[92m2026-04-26 22:09:30.429 - SYSTEM - INFO - [Agent Action] SQLTasks.update_task({'context': 'Обновление статуса: openclaw-gateway PID 1071158 стабильно работает (~38% CPU, 17.6% RAM). Тема с сервисом ожидает решения Рэма. Хаос-Генератор mk2 в ожидании материалов. Цвето-фонтан в разработке.', 'task_id': 'ee3cee90'})[0m
+[32m2026-04-26 22:09:30.451 - SYSTEM - INFO - [Host OS] Запрошен список топ-10 процессов.[0m
+[90m2026-04-26 22:09:30.451 - SYSTEM - INFO - [Agent Action Result] HostOSSystem.list_top_processes (Success): Топ процессов по ОЗУ:
+- PID: `1128117` | RAM: 15.7% | Имя: openclaw-gateway
+- PID: `1270372` | RAM: 12.1% | Имя: python
+- PID: `1270605` | RAM: 11.9% | Имя: python
+- PID: `724952` | RAM: 1.9% | Имя: systemd-journald
+- PID: `1255304` | RAM: 1.5% | Имя: MainThread
+- PID: `1267022` | RAM: 1.1% | Имя: npm exec @z_ai/
+- PID: `1254152` | RAM: 1.1% | Имя: npm exec @z_ai/
+- PID: `839567` | RAM: 0.9% | Имя: fail2ban-server
+- PID: `1254179` | RAM: 0.8% | Имя: node
+- PID: `1267053` | RAM: 0.8% | Имя: node[0m
+[32m2026-04-26 22:09:30.472 - SYSTEM - INFO - [Host OS] Запрошены активные соединения (LISTEN)[0m
+[90m2026-04-26 22:09:30.472 - SYSTEM - INFO - [Agent Action Result] HostOSNetwork.list_active_connections (Success): Сетевые соединения (состояние: LISTEN):
+- Локальный: 0.0.0.0:44321 | Удаленный: *:* (PID: 725577)
+- Локальный: :::44323 | Удаленный: *:* (PID: 725588)
+- Локальный: 127.0.0.54:53 | Удаленный: *:* (PID: 725038)
+- Локальный: 0.0.0.0:18789 | Удаленный: *:* (PID: 1128117)
+- Локальный: 127.0.0.1:49979 | Удаленный: *:* (PID: 1255304)
+- Локальный: ::1:6011 | Удаленный: *:* (PID: 1173081)
+- Локальный: 0.0.0.0:5000 | Удаленный: *:* (PID: 1223379)
+- Локальный: 127.0.0.53:53 | Удаленный: *:* (PID: 725038)
+- Локальный: 127.0.0.1:6011 | Удаленный: *:* (PID: 1173081)
+- Локальный: :::4330 | Удаленный: *:* (PID: 726240)
+- Локальный: 0.0.0.0:4330 | Удаленный: *:* (PID: 726240)
+- Локальный: fd7a:115c:a1e0::637:53e:50153 | Удаленный: *:* (
+[90m...[Вывод обрезан для терминала. Полный дамп сохранен в system.log][0m[0m
+[90m2026-04-26 22:09:30.482 - SYSTEM - INFO - [Agent Action Result] SQLTasks.update_task (Success): Задача 7ef9d810 обновлена.[0m
+[90m2026-04-26 22:09:30.482 - SYSTEM - INFO - [Agent Action Result] SQLTasks.update_task (Success): Задача ee3cee90 обновлена.[0m
+[33m2026-04-26 22:09:30.650 - SYSTEM - INFO - [Vector DB] Знания: найдено 3 записей по запросу 'Обновление статуса: openclaw-gateway PID 1071158 с... [Обрезано]'[0m
+[33m2026-04-26 22:09:30.731 - SYSTEM - INFO - [Vector DB] Мысли: найдено 3 записей по запросу 'Обновление статуса: openclaw-gateway PID 1071158 с... [Обрезано]'[0m
+[33m2026-04-26 22:09:30.857 - SYSTEM - INFO - [Vector DB] Знания: найдено 3 записей по запросу 'Обновлено: система стабильна после перезагрузки. o... [Обрезано]'[0m
+[33m2026-04-26 22:09:30.925 - SYSTEM - INFO - [Vector DB] Мысли: найдено 3 записей по запросу 'Обновлено: система стабильна после перезагрузки. o... [Обрезано]'[0m
+[94m2026-04-26 22:09:30.993 - SYSTEM - INFO - [LLM] Input tokens: 17154.[0m
+[96m2026-04-26 22:09:30.994 - SYSTEM - INFO - [ReAct] Шаг 4/15.[0m
+Failed to fetch updates - TelegramConflictError: Telegram server says - Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+Sleep for 1.163361 seconds and try again... (tryings = 1, bot id = 8756002507)

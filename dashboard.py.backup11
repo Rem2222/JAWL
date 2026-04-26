@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""JAWL Dashboard — Flask web monitoring"""
+
+import os
+import re
+import subprocess
+import threading
+import time
+from datetime import datetime
+from flask import Flask, jsonify, render_template_string
+
+LOG_FILE = "/home/rem/JAWL/logs/system.log"
+
+app = Flask(__name__)
+
+# Cache
+cache = {"data": {}, "ts": 0}
+CACHE_TTL = 5
+
+def read_log_lines(logfile, lines=50):
+    if not os.path.exists(logfile):
+        return []
+    with open(logfile, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - 50000))
+        data = f.read().decode('utf-8', errors='replace')
+    return data.split('\n')[-lines:]
+
+def parse_logs():
+    lines = read_log_lines(LOG_FILE, 200)
+    events = []
+    status = "● ONLINE"
+    current_step = None
+    model = "minimax-m2.7"
+    heartbeat = "300s"
+    agent_name = "AgentName"
+    last_action = None
+    errors = []
+    
+    for line in lines:
+        if not line.strip():
+            continue
+        # Remove ANSI codes
+        line_clean = re.sub(r'\x1b\[[0-9;]*m', '', line)
+        
+        # Status
+        if "ONLINE" in line_clean:
+            status = "● ONLINE"
+        elif "OFFLINE" in line_clean:
+            status = "○ OFFLINE"
+        elif " запущен в фоновом режиме" in line_clean:
+            status = "● ONLINE"
+        
+        # Model & Heartbeat
+        m = re.search(r'Model:\s*(\S+)', line_clean)
+        if m: model = m.group(1)
+        m = re.search(r'Heartbeat:\s*(\S+)', line_clean)
+        if m: heartbeat = m.group(1)
+        
+        # Steps
+        m = re.search(r'\[ReAct\]\s*Шаг\s*(\d+)/(\d+)', line_clean)
+        if m:
+            current_step = f"Шаг {m.group(1)}/{m.group(2)}"
+            last_action = "ReAct цикл"
+        
+        # Agent name
+        m = re.search(r'Имя агента:\s*(\S+)', line_clean)
+        if m: agent_name = m.group(1)
+        
+        # Actions
+        m = re.search(r'\[Agent Action\]\s*(.+)', line_clean)
+        if m:
+            action_text = m.group(1).strip()[:100]
+            if action_text and len(action_text) > 5:
+                last_action = action_text
+        
+        # Errors
+        if "ERROR" in line_clean or "CRITICAL" in line_clean:
+            errors.append(line_clean[-150:])
+        
+        # Timestamped events
+        m = re.match(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', line_clean)
+        if m:
+            ts = m.group(1)
+            events.append({"ts": ts, "line": line_clean[:150]})
+    
+    return {
+        "status": status,
+        "model": model,
+        "heartbeat": heartbeat,
+        "agent_name": agent_name,
+        "current_step": current_step or "—",
+        "last_action": last_action or "—",
+        "errors": errors[-5:],
+        "events": events[-30:],
+        "updated": datetime.now().strftime("%H:%M:%S")
+    }
+
+@app.route("/")
+def index():
+    now = time.time()
+    if now - cache["ts"] > CACHE_TTL:
+        cache["data"] = parse_logs()
+        cache["ts"] = now
+    return render_template_string(TEMPLATE, **cache["data"])
+
+@app.route("/api/status")
+def api_status():
+    now = time.time()
+    if now - cache["ts"] > CACHE_TTL:
+        cache["data"] = parse_logs()
+        cache["ts"] = now
+    return jsonify(cache["data"])
+
+@app.route("/api/logs")
+def api_logs():
+    lines = read_log_lines(LOG_FILE, 100)
+    return jsonify([re.sub(r'\x1b\[[0-9;]*m', '', l) for l in lines if l.strip()])
+
+@app.route("/api/activity")
+def api_activity():
+    """Count ReAct steps per minute from log."""
+    if not os.path.exists(LOG_FILE):
+        return jsonify({"labels": [], "data": []})
+    with open(LOG_FILE, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - 500000))
+        data = f.read().decode('utf-8', errors='replace')
+    lines = data.split('\n')
+    from collections import Counter
+    minute_counts = Counter()
+    for line in lines:
+        line_clean = re.sub(r'\x1b\[[0-9;]*m', '', line)
+        m_ts = re.match(r'(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})', line_clean)
+        if m_ts and 'ReAct' in line_clean and 'Шаг' in line_clean:
+            minute_key = m_ts.group(2)  # HH:MM
+            minute_counts[minute_key] += 1
+    # Last 30 minutes
+    sorted_minutes = sorted(minute_counts.keys())[-30:]
+    return jsonify({"labels": sorted_minutes, "data": [minute_counts[m] for m in sorted_minutes]})
+
+TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JAWL Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0a0f; color: #c0c0c0; font-family: 'Courier New', monospace; font-size: 13px; }
+h1 { color: #e0e0e0; padding: 12px 16px; border-bottom: 1px solid #222; font-size: 18px; }
+.grid { display: grid; grid-template-columns: 220px 1fr; gap: 12px; padding: 12px; height: calc(100vh - 50px); }
+.left { display: flex; flex-direction: column; gap: 10px; }
+.card { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 12px; }
+.card h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.card .val { font-size: 22px; color: #00ff88; }
+.card .val.warn { color: #ffaa00; }
+.card .val.error { color: #ff4444; }
+.right { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.log-box { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 8px; flex: 1; overflow-y: auto; max-height: calc(100vh - 120px); }
+.log-line { padding: 2px 4px; border-radius: 2px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-line:hover { background: #1a1a25; }
+.log-line.error { color: #ff4444; background: rgba(255,68,68,0.1); }
+.log-line.action { color: #00ccff; }
+.log-line.think { color: #ffaa00; }
+.log-line.ok { color: #00ff88; }
+.log-line .ts { color: #444; margin-right: 8px; }
+.error-box { background: rgba(255,68,68,0.1); border: 1px solid #ff4444; border-radius: 6px; padding: 10px; }
+.error-box h3 { color: #ff4444; }
+.errors { color: #ff6666; font-size: 11px; }
+.updated { color: #333; font-size: 10px; text-align: right; padding: 4px 12px; }
+</style>
+</head>
+<body>
+<h1>⚡ JAWL Dashboard — {{ agent_name }}</h1>
+<div class="grid">
+  <div class="left">
+    <div class="card"><h3>Статус</h3><div class="val">{{ status }}</div></div>
+    <div class="card"><h3>Модель</h3><div class="val" style="font-size:14px">{{ model }}</div></div>
+    <div class="card"><h3>Цикл</h3><div class="val">{{ current_step }}</div></div>
+    <div class="card"><h3>Heartbeat</h3><div class="val" style="font-size:16px">{{ heartbeat }}</div></div>
+    <div class="card"><h3>Последнее действие</h3><div class="val warn" style="font-size:12px">{{ last_action }}</div></div>
+    <div class="card" style="flex:1"><h3>ReAct шагов/мин</h3><canvas id="chart" width="190" height="80"></canvas></div>
+    {% if errors %}
+    <div class="error-box">
+      <h3>❗ Ошибки</h3>
+      <div class="errors">{% for e in errors %}{{ e }}<br>{% endfor %}</div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="right">
+    <div class="log-box" id="logBox"></div>
+  </div>
+</div>
+<div class="updated">Updated: {{ updated }}</div>
+<script>
+async function load() {
+  let offset = 0;
+  async function fetchLogs() {
+    try {
+      let r = await fetch('/api/logs');
+      let lines = await r.json();
+      let box = document.getElementById('logBox');
+      let html = '';
+      for (let l of lines) {
+        if (!l.trim()) continue;
+        let cls = 'log-line';
+        if (l.includes('ERROR') || l.includes('CRITICAL')) cls += ' error';
+        else if (l.includes('[Agent Action]')) cls += ' action';
+        else if (l.includes('Мысли') || l.includes('Vector DB')) cls += ' think';
+        else if (l.includes('Success') || l.includes('запущен')) cls += ' ok';
+        let ts = l.substring(0, 19);
+        html += `<div class="${cls}"><span class="ts">${ts}</span>${l.substring(19)}</div>`;
+      }
+      box.innerHTML = html;
+      box.scrollTop = box.scrollHeight;
+    } catch(e) { console.error(e); }
+  }
+  await fetchLogs();
+  setInterval(fetchLogs, 3000);
+}
+
+// Activity chart
+async function drawChart() {
+  try {
+    let r = await fetch('/api/activity');
+    let d = await r.json();
+    let c = document.getElementById('chart');
+    let ctx = c.getContext('2d');
+    let w = c.width, h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!d.data.length) return;
+    let max = Math.max(...d.data, 1);
+    let step = w / Math.max(d.data.length - 1, 1);
+    // grid
+    ctx.strokeStyle = '#1a1a25';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      let y = h * i / 3;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    // line
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < d.data.length; i++) {
+      let x = i * step;
+      let y = h - (d.data[i] / max) * (h - 10) - 5;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // dots
+    ctx.fillStyle = '#00ff88';
+    for (let i = 0; i < d.data.length; i++) {
+      let x = i * step;
+      let y = h - (d.data[i] / max) * (h - 10) - 5;
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.28); ctx.fill();
+    }
+    // labels
+    ctx.fillStyle = '#444';
+    ctx.font = '9px monospace';
+    if (d.labels.length > 0) {
+      ctx.fillText(d.labels[0], 2, h - 2);
+      ctx.fillText(d.labels[d.labels.length-1], w - 30, h - 2);
+    }
+    ctx.fillText(max, w - 20, 10);
+  } catch(e) { console.error(e); }
+}
+drawChart();
+setInterval(drawChart, 5000);
+
+load();
+</script>
+</body>
+</html>
+'''
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)

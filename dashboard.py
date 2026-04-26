@@ -1,0 +1,603 @@
+#!/usr/bin/env python3
+"""JAWL Dashboard — Flask web monitoring with SQL database support"""
+
+import os
+import re
+import sqlite3
+import time
+from datetime import datetime, timezone, timedelta
+from flask import Flask, jsonify, render_template_string
+
+LOG_FILE = "/home/rem/JAWL/logs/system.log"
+DB_FILE = "/home/rem/JAWL/src/utils/local/data/sql_db/agent.db"
+
+app = Flask(__name__)
+
+# Cache
+cache = {"data": {}, "ts": 0}
+CACHE_TTL = 3
+
+
+# ─── Log parsing ───────────────────────────────────────────────
+
+def read_log_lines(logfile, lines=50, max_bytes=50000):
+    if not os.path.exists(logfile):
+        return []
+    with open(logfile, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - max_bytes))
+        data = f.read().decode('utf-8', errors='replace')
+    return data.split('\n')[-lines:]
+
+
+def strip_ansi(text):
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+
+def parse_status_from_logs():
+    lines = read_log_lines(LOG_FILE, 500, 500000)
+    status = "● ONLINE"
+    current_step = None
+    current_step_total = None
+    model = "minimax-m2.7"
+    heartbeat = "300s"
+    agent_name = "JAWL"
+    last_action = None
+    react_actions_count = 0
+    uptime = "—"
+
+    for line in lines:
+        if not line.strip():
+            continue
+        lc = strip_ansi(line)
+
+        if "ONLINE" in lc:
+            status = "● ONLINE"
+        elif "OFFLINE" in lc:
+            status = "○ OFFLINE"
+        elif " запущен в фоновом режиме" in lc:
+            status = "● ONLINE"
+
+        m = re.search(r'Model:\s*(\S+)', lc)
+        if m: model = m.group(1)
+        m = re.search(r'Heartbeat:\s*(\S+)', lc)
+        if m: heartbeat = m.group(1)
+
+        m = re.search(r'\[ReAct\]\s*Шаг\s*(\d+)/(\d+)', lc)
+        if m:
+            current_step = int(m.group(1))
+            current_step_total = int(m.group(2))
+            react_actions_count += 1
+            last_action = "ReAct цикл"
+
+        m = re.search(r'Имя агента:\s*(\S+)', lc)
+        if m: agent_name = m.group(1)
+
+        m = re.search(r'\[Agent Action\]\s*(.+)', lc)
+        if m:
+            action_text = m.group(1).strip()[:100]
+            if action_text and len(action_text) > 5:
+                last_action = action_text
+
+        # Uptime — from last "Инициализация JAWL"
+        m_ts = re.match(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', lc)
+        if m_ts and 'Инициализация JAWL' in lc:
+            try:
+                start = datetime.strptime(m_ts.group(1), "%Y-%m-%d %H:%M:%S")
+                now = datetime.now()
+                delta = now - start
+                hours, rem = divmod(int(delta.total_seconds()), 3600)
+                minutes, secs = divmod(rem, 60)
+                uptime = f"{hours:02d}:{minutes:02d}:{secs:02d}"
+            except Exception:
+                pass
+
+    return {
+        "status": status,
+        "model": model,
+        "heartbeat": heartbeat,
+        "agent_name": agent_name,
+        "current_step": current_step,
+        "current_step_total": current_step_total,
+        "react_actions_count": react_actions_count,
+        "last_action": last_action or "—",
+        "uptime": uptime,
+    }
+
+
+# ─── Database queries ──────────────────────────────────────────
+
+def get_db():
+    return sqlite3.connect(DB_FILE)
+
+
+def calc_drive_deficit(last_satisfied_str, decay_rate, decay_interval_sec=3600):
+    """Calculate drive deficit using JAWL formula."""
+    try:
+        last_sat = datetime.strptime(last_satisfied_str, "%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        try:
+            last_sat = datetime.strptime(last_satisfied_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return 0
+    now = datetime.now()
+    intervals_passed = (now - last_sat).total_seconds() / decay_interval_sec
+    return min(100.0, intervals_passed * decay_rate)
+
+
+def get_drives():
+    """Get drives with calculated deficit."""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT name, type, decay_rate, last_satisfied_at, description FROM drives")
+    rows = cur.fetchall()
+    db.close()
+
+    drives = []
+    for name, dtype, decay_rate, last_sat, desc in rows:
+        deficit = calc_drive_deficit(last_sat, decay_rate)
+        drives.append({
+            "name": name,
+            "type": dtype,
+            "deficit": int(deficit),
+            "decay_rate": decay_rate,
+            "last_satisfied": last_sat,
+            "description": (desc or "")[:60],
+        })
+    return drives
+
+
+def get_tasks():
+    """Get tasks from database."""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id, description, term, context FROM tasks")
+    rows = cur.fetchall()
+    db.close()
+
+    tasks = []
+    for tid, desc, term, ctx in rows:
+        tasks.append({
+            "id": tid,
+            "description": desc,
+            "term": term or "",
+            "context": (ctx or "")[:80],
+        })
+    return tasks
+
+
+def get_thoughts(limit=100):
+    """Get thoughts (ticks) from database."""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, created_at, thoughts FROM ticks ORDER BY rowid DESC LIMIT ?",
+        (limit,)
+    )
+    rows = cur.fetchall()
+    db.close()
+
+    thoughts = []
+    for tid, ts, text in rows:
+        thoughts.append({
+            "id": tid[:8],
+            "ts": ts,
+            "text": (text or "")[:600],
+        })
+    return thoughts
+
+
+def get_system_resources():
+    """Get CPU and RAM usage."""
+    try:
+        # CPU
+        with open('/proc/stat', 'r') as f:
+            vals1 = list(map(int, f.readline().split()[1:]))
+        time.sleep(0.1)
+        with open('/proc/stat', 'r') as f:
+            vals2 = list(map(int, f.readline().split()[1:]))
+        d_idle = vals2[3] - vals1[3]
+        d_total = sum(vals2) - sum(vals1)
+        cpu_pct = round((1 - d_idle / max(d_total, 1)) * 100, 1)
+    except Exception:
+        cpu_pct = 0
+
+    try:
+        # RAM
+        with open('/proc/meminfo', 'r') as f:
+            mem = {}
+            for line in f:
+                parts = line.split()
+                mem[parts[0].rstrip(':')] = int(parts[1])
+        total = mem.get('MemTotal', 0) // 1024
+        available = mem.get('MemAvailable', 0) // 1024
+        used = total - available
+        ram_pct = round(used / max(total, 1) * 100, 1)
+        ram_str = f"{used}/{total} MB"
+    except Exception:
+        ram_pct = 0
+        ram_str = "?"
+
+    return {"cpu": cpu_pct, "ram_pct": ram_pct, "ram_str": ram_str}
+
+
+def get_log_lines(lines=100):
+    raw = read_log_lines(LOG_FILE, lines)
+    return [strip_ansi(l) for l in raw if l.strip()]
+
+
+def get_errors():
+    lines = read_log_lines(LOG_FILE, 200)
+    errors = []
+    for line in lines:
+        lc = strip_ansi(line)
+        if "ERROR" in lc or "CRITICAL" in lc:
+            errors.append(lc[-150:])
+    return errors[-5:]
+
+
+def get_activity():
+    if not os.path.exists(LOG_FILE):
+        return {"labels": [], "data": []}
+    with open(LOG_FILE, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - 500000))
+        data = f.read().decode('utf-8', errors='replace')
+    lines = data.split('\n')
+    from collections import Counter
+    minute_counts = Counter()
+    for line in lines:
+        lc = strip_ansi(line)
+        m_ts = re.match(r'(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})', lc)
+        if m_ts and 'ReAct' in lc and 'Шаг' in lc:
+            minute_counts[m_ts.group(2)] += 1
+    sorted_minutes = sorted(minute_counts.keys())[-30:]
+    return {"labels": sorted_minutes, "data": [minute_counts[m] for m in sorted_minutes]}
+
+
+# ─── Aggregated data ───────────────────────────────────────────
+
+def gather_all():
+    status = parse_status_from_logs()
+    return {
+        **status,
+        "drives": get_drives(),
+        "tasks": get_tasks(),
+        "thoughts": get_thoughts(100),
+        "resources": get_system_resources(),
+        "errors": get_errors(),
+        "activity": get_activity(),
+        "updated": datetime.now().strftime("%H:%M:%S"),
+    }
+
+
+# ─── Routes ────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    now = time.time()
+    if now - cache["ts"] > CACHE_TTL:
+        cache["data"] = gather_all()
+        cache["ts"] = now
+    data = cache["data"]
+    data["log_lines"] = get_log_lines(100)
+    return render_template_string(TEMPLATE, **data)
+
+
+@app.route("/api/status")
+def api_status():
+    now = time.time()
+    if now - cache["ts"] > CACHE_TTL:
+        cache["data"] = gather_all()
+        cache["ts"] = now
+    return jsonify(cache["data"])
+
+
+@app.route("/api/logs")
+def api_logs():
+    return jsonify(get_log_lines(100))
+
+
+@app.route("/api/drives")
+def api_drives():
+    return jsonify(get_drives())
+
+
+@app.route("/api/tasks")
+def api_tasks():
+    return jsonify(get_tasks())
+
+
+@app.route("/api/thoughts")
+def api_thoughts():
+    return jsonify(get_thoughts(100))
+
+
+@app.route("/api/activity")
+def api_activity():
+    return jsonify(get_activity())
+
+
+# ─── HTML Template ─────────────────────────────────────────────
+
+TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JAWL Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0a0f; color: #c0c0c0; font-family: 'Courier New', monospace; font-size: 13px; }
+h1 { color: #e0e0e0; padding: 12px 16px; border-bottom: 1px solid #222; font-size: 18px; display: flex; justify-content: space-between; align-items: center; }
+h1 .uptime { font-size: 12px; color: #666; }
+
+.grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px; height: calc(100vh - 50px); }
+.left { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.right { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+
+/* Cards */
+.card { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 10px; }
+.card h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.card .val { font-size: 20px; color: #00ff88; }
+.card .val.warn { color: #ffaa00; }
+.card .val.error { color: #ff4444; }
+.card .val.small { font-size: 12px; }
+
+/* Drive bars */
+.drive-row { margin-bottom: 8px; }
+.drive-row .drive-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+.drive-row .drive-name { font-size: 11px; color: #aaa; }
+.drive-row .drive-pct { font-size: 11px; font-weight: bold; }
+.drive-bar { height: 6px; background: #1a1a25; border-radius: 3px; overflow: hidden; }
+.drive-bar .drive-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.fill-ok { background: #00ff88; }
+.fill-warn { background: #ffaa00; }
+.fill-crit { background: #ff4444; }
+
+/* Tasks */
+.task-item { font-size: 11px; padding: 3px 0; border-bottom: 1px solid #1a1a25; color: #aaa; }
+.task-item:last-child { border-bottom: none; }
+.no-data { font-size: 11px; color: #444; font-style: italic; }
+
+/* Resources */
+.res-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+.res-label { color: #666; }
+.res-val { color: #00ff88; }
+.res-val.warn { color: #ffaa00; }
+
+/* Thoughts — large area */
+.thoughts-box { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 8px; flex: 3; overflow-y: auto; }
+.thoughts-box h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; position: sticky; top: 0; background: #12121a; padding: 2px 0; }
+
+/* Logs — small area (1/4 of thoughts) */
+.log-box { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 8px; flex: 1; overflow-y: auto; }
+.log-box h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; position: sticky; top: 0; background: #12121a; padding: 2px 0; }
+
+/* Thought items */
+.thought-item { padding: 6px 4px; border-bottom: 1px solid #1a1a25; }
+.thought-item:last-child { border-bottom: none; }
+.thought-ts { color: #444; font-size: 10px; margin-bottom: 2px; }
+.thought-text { font-size: 12px; color: #ddd; line-height: 1.4; word-wrap: break-word; }
+
+/* Log items */
+.log-line { padding: 2px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-line:hover { background: #1a1a25; }
+.log-line.error { color: #ff4444; background: rgba(255,68,68,0.1); }
+.log-line.action { color: #00ccff; }
+.log-line.think { color: #ffaa00; }
+.log-line.ok { color: #00ff88; }
+.log-line .ts { color: #444; margin-right: 8px; }
+
+/* Error box */
+.error-box { background: rgba(255,68,68,0.1); border: 1px solid #ff4444; border-radius: 6px; padding: 8px; }
+.error-box h3 { color: #ff4444; font-size: 10px; text-transform: uppercase; margin-bottom: 4px; }
+.errors { color: #ff6666; font-size: 10px; }
+
+/* ReAct progress */
+.react-bar { height: 8px; background: #1a1a25; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.react-fill { height: 100%; background: #00ccff; border-radius: 4px; transition: width 0.5s; }
+
+.updated { color: #333; font-size: 10px; text-align: right; padding: 4px 12px; }
+</style>
+</head>
+<body>
+<h1>
+  <span>⚡ JAWL Dashboard — {{ agent_name }}</span>
+  <span class="uptime">⏱ Uptime: {{ uptime }}</span>
+</h1>
+
+<div class="grid">
+  <!-- LEFT PANEL -->
+  <div class="left">
+    <div id="leftPanel"></div>
+  </div>
+
+  <!-- RIGHT PANEL: Thoughts (large) + Logs (small) -->
+  <div class="right">
+    <div class="thoughts-box" id="thoughtsBox">
+      <h3>💡 Мысли</h3>
+      {% for t in thoughts %}
+      <div class="thought-item">
+        <div class="thought-ts">{{ t.ts }}</div>
+        <div class="thought-text">{{ t.text }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="log-box" id="logBox">
+      <h3>📜 Логи</h3>
+      <div class="no-data">Загрузка...</div>
+    </div>
+  </div>
+</div>
+
+<div class="updated">Updated: {{ updated }}</div>
+
+<script>
+// Full left panel refresh
+function renderLeftPanel(d) {
+  let html = '';
+
+  // Status
+  html += '<div class="card"><h3>Статус</h3><div class="val">' + d.status + '</div></div>';
+
+  // Model + Heartbeat
+  html += '<div class="card"><h3>Модель</h3><div class="val small">' + d.model + '</div></div>';
+  html += '<div class="card"><h3>Heartbeat</h3><div class="val" style="font-size:16px">' + d.heartbeat + '</div></div>';
+
+  // ReAct Progress
+  html += '<div class="card"><h3>ReAct Progress</h3>';
+  if (d.current_step) {
+    html += '<div class="val small">Шаг ' + d.current_step + '/' + d.current_step_total + ' (' + d.react_actions_count + ' действий)</div>';
+    let pct = Math.round(d.current_step / d.current_step_total * 100);
+    html += '<div class="react-bar"><div class="react-fill" style="width:' + pct + '%"></div></div>';
+  } else {
+    html += '<div class="val small">—</div>';
+  }
+  html += '</div>';
+
+  // Last Action
+  html += '<div class="card"><h3>Последнее действие</h3><div class="val warn small">' + (d.last_action || '—') + '</div></div>';
+
+  // Drives
+  html += '<div class="card"><h3>🧠 Драйвы</h3>';
+  for (let dr of d.drives) {
+    let col = dr.deficit >= 70 ? '#ff4444' : dr.deficit >= 40 ? '#ffaa00' : '#00ff88';
+    let cls = dr.deficit >= 70 ? 'fill-crit' : dr.deficit >= 40 ? 'fill-warn' : 'fill-ok';
+    html += '<div class="drive-row"><div class="drive-header"><span class="drive-name">' + dr.name + '</span><span class="drive-pct" style="color:' + col + '">' + dr.deficit + '%</span></div>';
+    html += '<div class="drive-bar"><div class="drive-fill ' + cls + '" style="width:' + dr.deficit + '%"></div></div></div>';
+  }
+  html += '</div>';
+
+  // Tasks
+  html += '<div class="card"><h3>📋 Задачи (' + d.tasks.length + ')</h3>';
+  if (d.tasks.length) {
+    for (let t of d.tasks) html += '<div class="task-item">' + (t.description || '').substring(0, 60) + '</div>';
+  } else {
+    html += '<div class="no-data">Нет активных задач</div>';
+  }
+  html += '</div>';
+
+  // Resources
+  let cpuCls = d.resources.cpu > 60 ? 'warn' : '';
+  let ramCls = d.resources.ram_pct > 80 ? 'warn' : '';
+  html += '<div class="card"><h3>🧮 Ресурсы</h3>';
+  html += '<div class="res-row"><span class="res-label">CPU</span><span class="res-val ' + cpuCls + '">' + d.resources.cpu + '%</span></div>';
+  html += '<div class="res-row"><span class="res-label">RAM</span><span class="res-val ' + ramCls + '">' + d.resources.ram_pct + '% (' + d.resources.ram_str + ')</span></div>';
+  html += '</div>';
+
+  // Activity chart placeholder
+  html += '<div class="card" style="flex:0 0 auto"><h3>ReAct шагов/мин</h3><canvas id="chart" width="220" height="80"></canvas></div>';
+
+  // Errors
+  if (d.errors && d.errors.length) {
+    html += '<div class="error-box"><h3>❗ Ошибки</h3><div class="errors">';
+    for (let e of d.errors) html += e + '<br>';
+    html += '</div></div>';
+  }
+
+  document.getElementById('leftPanel').innerHTML = html;
+  // Redraw chart after DOM update
+  drawChart();
+}
+
+async function loadLeftPanel() {
+  try {
+    let r = await fetch('/api/status');
+    let d = await r.json();
+    renderLeftPanel(d);
+  } catch(e) { console.error(e); }
+}
+
+// Live thought refresh
+async function loadThoughts() {
+  try {
+    let r = await fetch('/api/thoughts');
+    let thoughts = await r.json();
+    let box = document.getElementById('thoughtsBox');
+    let html = '<h3 style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:#12121a;padding:2px 0;">💡 Мысли</h3>';
+    for (let t of thoughts) {
+      html += '<div class="thought-item"><div class="thought-ts">' + t.ts + '</div><div class="thought-text">' + t.text + '</div></div>';
+    }
+    box.innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+
+// Live log refresh
+async function loadLogs() {
+  try {
+    let r = await fetch('/api/logs');
+    let lines = await r.json();
+    let box = document.getElementById('logBox');
+    let html = '<h3 style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:#12121a;padding:2px 0;">📜 Логи</h3>';
+    for (let l of lines) {
+      if (!l.trim()) continue;
+      let cls = 'log-line';
+      if (l.includes('ERROR') || l.includes('CRITICAL')) cls += ' error';
+      else if (l.includes('[Agent Action]')) cls += ' action';
+      else if (l.includes('Мысли') || l.includes('Vector DB')) cls += ' think';
+      else if (l.includes('Success') || l.includes('запущен')) cls += ' ok';
+      html += '<div class="' + cls + '"><span class="ts">' + l.substring(0, 19) + '</span>' + l.substring(19) + '</div>';
+    }
+    box.innerHTML = html;
+    box.scrollTop = box.scrollHeight;
+  } catch(e) { console.error(e); }
+}
+
+loadThoughts();
+loadLogs();
+loadLeftPanel();
+setInterval(loadThoughts, 3000);
+setInterval(loadLogs, 3000);
+setInterval(loadLeftPanel, 3000);
+
+// Activity chart
+async function drawChart() {
+  try {
+    let r = await fetch('/api/activity');
+    let d = await r.json();
+    let c = document.getElementById('chart');
+    let ctx = c.getContext('2d');
+    let w = c.width, h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!d.data.length) return;
+    let max = Math.max(...d.data, 1);
+    let step = w / Math.max(d.data.length - 1, 1);
+    ctx.strokeStyle = '#1a1a25'; ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      let y = h * i / 3;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < d.data.length; i++) {
+      let x = i * step, y = h - (d.data[i] / max) * (h - 10) - 5;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = '#00ff88';
+    for (let i = 0; i < d.data.length; i++) {
+      let x = i * step, y = h - (d.data[i] / max) * (h - 10) - 5;
+      ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.28); ctx.fill();
+    }
+    ctx.fillStyle = '#444'; ctx.font = '9px monospace';
+    if (d.labels.length > 0) {
+      ctx.fillText(d.labels[0], 2, h - 2);
+      ctx.fillText(d.labels[d.labels.length-1], w - 30, h - 2);
+    }
+    ctx.fillText(max, w - 20, 10);
+  } catch(e) { console.error(e); }
+}
+drawChart();
+setInterval(drawChart, 5000);
+</script>
+</body>
+</html>
+'''
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)

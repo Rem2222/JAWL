@@ -1,5 +1,7 @@
 import asyncio
+import time
 from duckduckgo_search import DDGS
+from duckduckgo_search.exceptions import RatelimitException
 from typing import Any
 
 from src.utils.logger import system_logger
@@ -14,11 +16,23 @@ class DuckDuckGoSearch:
         self.client = client
 
     async def search_raw(self, query: str, max_results: int = 5) -> list[dict[str, Any]]:
-        """Сырой поиск."""
+        """Сырой поиск с retry при rate limit."""
 
         def _do_search():
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, max_results=max_results))
+            # Retry up to 3 times with backoff: 3s, 6s, 12s
+            for attempt in range(4):
+                try:
+                    with DDGS() as ddgs:
+                        return list(ddgs.text(query, max_results=max_results))
+                except RatelimitException:
+                    if attempt < 3:
+                        delay = 3 * (2 ** attempt)
+                        time.sleep(delay)
+                    else:
+                        raise
+                except Exception as e:
+                    # Other errors: fail immediately
+                    raise
 
         return await asyncio.to_thread(_do_search)
 

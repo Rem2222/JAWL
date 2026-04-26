@@ -7,6 +7,7 @@ from src.l2_interfaces.telegram.aiogram.events import AiogramEvents
 from src.l2_interfaces.telegram.aiogram.skills.chats import AiogramChats
 from src.l2_interfaces.telegram.aiogram.skills.messages import AiogramMessages
 from src.l2_interfaces.telegram.aiogram.skills.moderation import AiogramModeration
+from src.l2_interfaces.telegram.aiogram.skills.simple_send import SimpleSend
 
 from src.l3_agent.skills.registry import register_instance
 from src.l3_agent.context.registry import ContextSection 
@@ -33,6 +34,7 @@ def setup_aiogram(system: "System", bot_token: str | None) -> List[Any]:
     register_instance(AiogramChats(client, system.aiogram_state))
     register_instance(AiogramMessages(client))
     register_instance(AiogramModeration(client))
+    register_instance(SimpleSend(client))
 
     # Регистрация провайдеров контекста (отдают Markdown блоки в промпт агента)
     system.context_registry.register_provider(

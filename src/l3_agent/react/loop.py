@@ -107,7 +107,7 @@ class ReactLoop:
                             "function": {"name": "execute_skill"},
                         },
                         temperature=self.agent_state.temperature,
-                        max_tokens=4096,
+                        max_tokens=self.agent_state.max_tokens,
                         timeout=240.0,
                     )
 
@@ -164,11 +164,62 @@ class ReactLoop:
                     break
 
                 if not message_obj.tool_calls:
-                    system_logger.info("[ReAct] Агент не вызвал инструменты. Цикл завершен.")
-                    await self.sql_ticks.save_tick(
-                        thoughts=raw_answer, actions=[], results={"status": "completed"}
-                    )
-                    break
+                    # Fallback: попытка распарсить plain text JSON из message.content
+                    fallback_parsed = None
+                    if raw_answer:
+                        try:
+                            import json
+                            json_data = json.loads(raw_answer)
+                            if isinstance(json_data, dict) and "thoughts" in json_data:
+                                fallback_parsed = AgentResponse.model_validate(json_data)
+                                system_logger.info("[ReAct] Fallback JSON parsing successful.")
+                        except (json.JSONDecodeError, ValidationError) as e:
+                            system_logger.warning(f"[ReAct] Fallback JSON parsing failed: {e}")
+
+                    if fallback_parsed:
+                        # Используем распарсенные данные — продолжаем выполнение
+                        parsed_response = fallback_parsed
+                        thoughts = parsed_response.thoughts.strip()
+                        actions = parsed_response.actions
+
+                        if thoughts:
+                            system_logger.info(f"\n[Thoughts]:\n{thoughts}\n")
+
+                        if not actions:
+                            system_logger.info("[ReAct] Передан пустой массив действий. Завершение.")
+                            await self.sql_ticks.save_tick(
+                                thoughts=thoughts, actions=[], results={"status": "completed"}
+                            )
+                            break
+
+                        self.agent_state.update_state(AgentStatus.ACTING)
+                        results_str = await execute_skill(actions=actions)
+
+                        self.agent_state.last_thoughts = thoughts
+                        self.agent_state.last_actions_result = results_str
+
+                        args_to_rag = []
+                        for act in actions:
+                            for val in act.parameters.values():
+                                if isinstance(val, str) and len(val) > 3:
+                                    args_to_rag.append(val)
+
+                        self.agent_state.last_action_args = args_to_rag
+
+                        await self.sql_ticks.save_tick(
+                            thoughts=thoughts,
+                            actions=[a.model_dump() for a in actions],
+                            results={"execution_report": results_str},
+                        )
+
+                        step += 1
+                        continue
+                    else:
+                        system_logger.info("[ReAct] Агент не вызвал инструменты. Цикл завершен.")
+                        await self.sql_ticks.save_tick(
+                            thoughts=raw_answer, actions=[], results={"status": "completed"}
+                        )
+                        break
 
                 # =====================================================================
                 # Разбор ответа LLM
