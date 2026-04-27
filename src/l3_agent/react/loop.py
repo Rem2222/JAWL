@@ -98,25 +98,64 @@ class ReactLoop:
                 system_logger.info(f"[ReAct] Шаг {step}/{self.agent_state.max_react_steps}.")
                 try:
                     session = self.llm.get_session()
-                    response = await session.chat.completions.create(
-                        model=self.agent_state.llm_model,
-                        messages=api_messages,
-                        tools=self.tools,
-                        tool_choice={
-                            "type": "function",
-                            "function": {"name": "execute_skill"},
-                        },
-                        temperature=self.agent_state.temperature,
-                        max_tokens=self.agent_state.max_tokens,
-                        timeout=240.0,
-                    )
-
                     timeout_retries = 0
-                    message_obj = response.choices[0].message
-                    raw_answer = message_obj.content or ""
+                    raw_answer = ""
+                    used_tool_choice = False
 
-                    if message_obj.tool_calls:
-                        raw_answer += str(message_obj.tool_calls[0].function.arguments)
+                    # Читаем переключатель tool_choice из файла
+                    try:
+                        with open("/tmp/jawl_tool_choice.txt") as f:
+                            self.agent_state.use_tool_choice = f.read().strip() != "0"
+                    except FileNotFoundError:
+                        self.agent_state.use_tool_choice = True
+
+                    # --- Переключатель: tool_choice или сразу free-form ---
+                    if self.agent_state.use_tool_choice:
+                        # Режим 1: пробуем forced tool_choice
+                        response = await session.chat.completions.create(
+                            model=self.agent_state.llm_model,
+                            messages=api_messages,
+                            tools=self.tools,
+                            tool_choice={
+                                "type": "function",
+                                "function": {"name": "execute_skill"},
+                            },
+                            temperature=self.agent_state.temperature,
+                            max_tokens=self.agent_state.max_tokens,
+                            timeout=240.0,
+                        )
+                        message_obj = response.choices[0].message
+
+                        if message_obj.tool_calls:
+                            raw_answer = str(message_obj.tool_calls[0].function.arguments)
+                            used_tool_choice = True
+                            system_logger.info("[ReAct] tool_calls получены.")
+                        else:
+                            # tool_choice не сработал — логируем и retry без
+                            self.agent_state.missed_tool_calls += 1
+                            system_logger.warning(f"[ReAct] tool_choice failed (missed: {self.agent_state.missed_tool_calls}). Retrying free-form...")
+                            response2 = await session.chat.completions.create(
+                                model=self.agent_state.llm_model,
+                                messages=api_messages,
+                                temperature=self.agent_state.temperature,
+                                max_tokens=self.agent_state.max_tokens,
+                                timeout=240.0,
+                            )
+                            message_obj = response2.choices[0].message
+                            raw_answer = message_obj.content or ""
+                            system_logger.info(f"[ReAct] Free-form ({len(raw_answer)} chars)")
+                    else:
+                        # Режим 2: сразу free-form, без tool_choice
+                        response = await session.chat.completions.create(
+                            model=self.agent_state.llm_model,
+                            messages=api_messages,
+                            temperature=self.agent_state.temperature,
+                            max_tokens=self.agent_state.max_tokens,
+                            timeout=240.0,
+                        )
+                        message_obj = response.choices[0].message
+                        raw_answer = message_obj.content or ""
+                        system_logger.info(f"[ReAct] Free-form mode ({len(raw_answer)} chars)")
 
                     self.tracker.add_output_record(raw_answer)
 
@@ -164,17 +203,47 @@ class ReactLoop:
                     break
 
                 if not message_obj.tool_calls:
-                    # Fallback: попытка распарсить plain text JSON из message.content
+                    # Логируем сырой ответ для диагностики
+                    system_logger.info(f"[ReAct] RAW ANSWER (no tool_calls): {raw_answer[:500]}")
+                    system_logger.info(f"[ReAct] message_obj.content type: {type(message_obj.content)}, tool_calls: {message_obj.tool_calls}")
+
+                    # Fallback: попытка распарсить JSON из ответа
                     fallback_parsed = None
                     if raw_answer:
+                        import json as _json
+                        import re as _re
+
+                        # Попытка 1: прямой JSON parse
                         try:
-                            import json
-                            json_data = json.loads(raw_answer)
+                            json_data = _json.loads(raw_answer)
                             if isinstance(json_data, dict) and "thoughts" in json_data:
                                 fallback_parsed = AgentResponse.model_validate(json_data)
-                                system_logger.info("[ReAct] Fallback JSON parsing successful.")
+                                system_logger.info("[ReAct] Fallback JSON (direct) OK.")
                         except (json.JSONDecodeError, ValidationError) as e:
-                            system_logger.warning(f"[ReAct] Fallback JSON parsing failed: {e}")
+                            system_logger.warning(f"[ReAct] Direct JSON failed: {e}")
+
+                        # Попытка 2: вытащить JSON из markdown блока или текста
+                        if not fallback_parsed:
+                            json_match = _re.search(r'\{[\s\S]*?"thoughts"[\s\S]*?"actions"[\s\S]*?\}', raw_answer)
+                            if json_match:
+                                try:
+                                    json_data = _json.loads(json_match.group(0))
+                                    fallback_parsed = AgentResponse.model_validate(json_data)
+                                    system_logger.info("[ReAct] Fallback JSON (regex) OK.")
+                                except (_json.JSONDecodeError, ValidationError) as e:
+                                    system_logger.warning(f"[ReAct] Regex JSON failed: {e}")
+
+                        # Попытка 3: обёрнут в ```json ... ```
+                        if not fallback_parsed:
+                            md_match = _re.search(r'```(?:json)?\s*([\s\S]*?)```', raw_answer)
+                            if md_match:
+                                try:
+                                    json_data = _json.loads(md_match.group(1).strip())
+                                    if isinstance(json_data, dict) and "thoughts" in json_data:
+                                        fallback_parsed = AgentResponse.model_validate(json_data)
+                                        system_logger.info("[ReAct] Fallback JSON (markdown block) OK.")
+                                except (_json.JSONDecodeError, ValidationError) as e:
+                                    system_logger.warning(f"[ReAct] Markdown JSON failed: {e}")
 
                     if fallback_parsed:
                         # Используем распарсенные данные — продолжаем выполнение

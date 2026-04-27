@@ -71,8 +71,16 @@ class SQLTicks:
         """
         Отдает отформатированный блок контекста для агента.
         """
+        # Динамическое чтение ticks_limit из файла
+        try:
+            with open("/tmp/jawl_ticks_limit.txt") as f:
+                dynamic_limit = int(f.read().strip())
+                limit = max(1, min(30, dynamic_limit))
+            self.ticks_limit = limit
+        except (FileNotFoundError, ValueError):
+            limit = self.ticks_limit
 
-        ticks = await self.get_ticks(limit=self.ticks_limit)
+        ticks = await self.get_ticks(limit=limit)
 
         if not ticks:
             return "## RECENT TICKS\nНет предыдущих тиков."

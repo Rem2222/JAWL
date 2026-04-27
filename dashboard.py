@@ -2,20 +2,61 @@
 """JAWL Dashboard — Flask web monitoring with SQL database support"""
 
 import os
+import sys
 import re
 import sqlite3
 import time
 from datetime import datetime, timezone, timedelta
-from flask import Flask, jsonify, render_template_string
+import json
+import urllib.request
+from flask import Flask, jsonify, render_template_string, request
+import yaml
 
 LOG_FILE = "/home/rem/JAWL/logs/system.log"
 DB_FILE = "/home/rem/JAWL/src/utils/local/data/sql_db/agent.db"
+SETTINGS_PATH = "/home/rem/JAWL/config/settings.yaml"
+ENV_PATH = "/home/rem/JAWL/.env"
+MAIN_SCRIPT = "/home/rem/JAWL/src/main.py"
+PID_FILE = "/tmp/jawl.pid"
+
+PROVIDERS = {
+    "minimax": {"name": "MiniMax M2.7", "url": "https://api.minimax.io/v1", "model": "minimax-m2.7", "icon": "M2.7"},
+    "glm": {"name": "GLM-5 (Z.AI)", "url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5", "icon": "GLM"},
+}
+
 
 app = Flask(__name__)
 
 # Cache
 cache = {"data": {}, "ts": 0}
 CACHE_TTL = 3
+
+
+# ─── Crypto Ticker Cache ────────────────────────────────────────
+crypto_cache = {"data": None, "ts": 0}
+CRYPTO_CACHE_TTL = 60  # seconds
+
+def fetch_crypto_prices():
+    """Fetch BTC/ETH/SOL prices from CoinGecko free API."""
+    now = time.time()
+    if crypto_cache["data"] and now - crypto_cache["ts"] < CRYPTO_CACHE_TTL:
+        return crypto_cache["data"]
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true"
+        req = urllib.request.Request(url, headers={"User-Agent": "JAWL-Dashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = json.loads(resp.read().decode())
+        result = []
+        for cid, name, icon in [("bitcoin", "BTC", "₿"), ("ethereum", "ETH", "Ξ"), ("solana", "SOL", "◎")]:
+            if cid in raw:
+                price = raw[cid]["usd"]
+                change = raw[cid].get("usd_24h_change", 0)
+                result.append({"id": cid, "name": name, "icon": icon, "price": price, "change_24h": round(change, 2)})
+        crypto_cache["data"] = result
+        crypto_cache["ts"] = now
+        return result
+    except Exception:
+        return crypto_cache["data"] or []
 
 
 # ─── Log parsing ───────────────────────────────────────────────
@@ -259,6 +300,13 @@ def get_activity():
 
 # ─── Aggregated data ───────────────────────────────────────────
 
+def get_ticks_limit():
+    try:
+        with open("/tmp/jawl_ticks_limit.txt") as f:
+            return int(f.read().strip())
+    except:
+        return 15
+
 def gather_all():
     status = parse_status_from_logs()
     return {
@@ -269,6 +317,7 @@ def gather_all():
         "resources": get_system_resources(),
         "errors": get_errors(),
         "activity": get_activity(),
+        "ticks_limit": get_ticks_limit(),
         "updated": datetime.now().strftime("%H:%M:%S"),
     }
 
@@ -320,6 +369,140 @@ def api_activity():
     return jsonify(get_activity())
 
 
+
+@app.route("/api/crypto")
+def api_crypto():
+    return jsonify(fetch_crypto_prices())
+
+
+
+@app.route("/api/providers")
+def api_providers():
+    current = None
+    try:
+        with open(SETTINGS_PATH) as f:
+            cfg = yaml.safe_load(f)
+        m = cfg.get("llm", {}).get("model_name", "")
+        for pid, p in PROVIDERS.items():
+            if p["model"] == m:
+                current = pid
+                break
+    except:
+        pass
+    return jsonify({"current": current, "providers": PROVIDERS})
+
+
+@app.route("/api/switch", methods=["POST"])
+def api_switch():
+    data = request.get_json()
+    pid = data.get("provider")
+    if pid not in PROVIDERS:
+        return jsonify({"error": "Unknown provider"}), 400
+    p = PROVIDERS[pid]
+
+    with open(SETTINGS_PATH) as f:
+        cfg = yaml.safe_load(f)
+    cfg["llm"]["model_name"] = p["model"]
+    with open(SETTINGS_PATH, "w") as f:
+        yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    if pid == "minimax":
+        key = ("sk-cp-JqkXlcj0NLALaq1zVJM33J4mwMs2U-Lj5lv3y3Ai2WTCDOB-JNwtjxAWeGSP8TL3jmsHVQ4aWS7u6j4uyVz8e9P_iX5gKm0fi1qUpx3npuwLXP1cQ9BQDzg")
+    else:
+        key = ("c421f4a13d9f4e499a059aa7153280d6.wIYrvNBYbVFWBElS")
+
+    out = []
+    has_u = has_k = False
+    try:
+        with open(ENV_PATH) as f:
+            for ln in f:
+                if ln.startswith("LLM_API_URL="):
+                    out.append('LLM_API_URL="' + p["url"] + '"\n')
+                    has_u = True
+                elif ln.startswith("LLM_API_KEY_1="):
+                    out.append('LLM_API_KEY_1="' + key + '"\n')
+                    has_k = True
+                else:
+                    out.append(ln)
+    except:
+        pass
+    if not has_u:
+        out.append('LLM_API_URL="' + p["url"] + '"\n')
+    if not has_k:
+        out.append('LLM_API_KEY_1="' + key + '"\n')
+    with open(ENV_PATH, "w") as f:
+        f.writelines(out)
+
+    import subprocess
+    try:
+        with open(PID_FILE) as f:
+            os.kill(int(f.read().strip()), 15)
+    except:
+        pass
+    subprocess.run("pkill -f 'python.*src/main.py' || true", shell=True)
+    time.sleep(2)
+    proc = subprocess.Popen(
+        [sys.executable, MAIN_SCRIPT],
+        cwd="/home/rem/JAWL",
+        stdout=open("/home/rem/JAWL/logs/stdout.log", "a"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True
+    )
+    with open(PID_FILE, "w") as f:
+        f.write(str(proc.pid))
+
+    return jsonify({"ok": True, "pid": proc.pid, "provider": pid, "model": p["model"]})
+
+
+@app.route("/api/tool_choice", methods=["GET", "POST"])
+def api_tool_choice():
+    status_file = "/tmp/jawl_tool_choice.txt"
+    if request.method == "POST":
+        data = request.get_json() or {}
+        enabled = data.get("enabled", True)
+        with open(status_file, "w") as f:
+            f.write("1" if enabled else "0")
+        return jsonify({"ok": True, "enabled": enabled})
+    else:
+        try:
+            with open(status_file) as f:
+                enabled = f.read().strip() != "0"
+        except FileNotFoundError:
+            enabled = True
+        # Считаем missed из логов за 30 мин
+        missed = 0
+        try:
+            cutoff = time.time() - 1800
+            with open(LOG_FILE) as f:
+                for line in f:
+                    if "tool_choice failed" in line:
+                        missed += 1
+        except:
+            pass
+        return jsonify({"enabled": enabled, "missed_30min": missed})
+
+
+@app.route("/api/ticks_limit", methods=["POST"])
+def api_ticks_limit():
+    data = request.get_json() or {}
+    limit = data.get("limit", 15)
+    limit = max(1, min(30, int(limit)))
+    with open("/tmp/jawl_ticks_limit.txt", "w") as f:
+        f.write(str(limit))
+    return jsonify({"ok": True, "ticks_limit": limit})
+
+
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    import subprocess
+    script = "/home/rem/JAWL/scripts/start-safe.sh"
+    try:
+        proc = subprocess.run(["bash", script], capture_output=True, text=True, timeout=30)
+        return jsonify({"ok": True, "stdout": proc.stdout[-200:], "stderr": proc.stderr[-200:]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ─── HTML Template ─────────────────────────────────────────────
 
 TEMPLATE = '''
@@ -330,78 +513,85 @@ TEMPLATE = '''
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>JAWL Dashboard</title>
 <style>
+/* JINX STYLING — Neon Pink/Magenta Theme */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0a0f; color: #c0c0c0; font-family: 'Courier New', monospace; font-size: 13px; }
-h1 { color: #e0e0e0; padding: 12px 16px; border-bottom: 1px solid #222; font-size: 18px; display: flex; justify-content: space-between; align-items: center; }
-h1 .uptime { font-size: 12px; color: #666; }
+h1 { 
+    color: #ff0080; 
+    padding: 12px 16px; 
+    border-bottom: 2px solid #ff0080; 
+    font-size: 18px; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff;
+    animation: glow 2s ease-in-out infinite alternate;
+}
+h1 .uptime { font-size: 12px; color: #ff69b4; }
 
-.grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px; height: calc(100vh - 50px); }
+@keyframes glow {
+    from { text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff; }
+    to { text-shadow: 0 0 15px #ff69b4, 0 0 30px #ff00ff; }
+}
+
+@keyframes glitch {
+    0% { transform: translate(0); }
+    20% { transform: translate(-2px, 2px); }
+    40% { transform: translate(-2px, -2px); }
+    60% { transform: translate(2px, 2px); }
+    80% { transform: translate(2px, -2px); }
+    100% { transform: translate(0); }
+}
+
+.grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px; height: calc(100vh - 50px); overflow: hidden; }
 .left { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 .right { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.card { background: #12121a; border: 1px solid #222; border-radius: 4px; padding: 10px; }
+.card:hover { border-color: #ff0080; box-shadow: 0 0 10px rgba(255,0,128,0.3); }
+.card h3 { color: #ff69b4; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #222; padding-bottom: 6px; }
+.log-box { flex: 0 0 160px; overflow-y: auto; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
+.log-box h3 { color: #ff69b4; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.thoughts-box { flex: 1; overflow-y: auto; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
+.thoughts-box h3 { color: #ff69b4; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.provider-btns { display: flex; gap: 6px; margin-top: 8px; }
+.provider-btn { background: #1a1a2e; border: 1px solid #ff69b4; color: #ff69b4; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+.provider-btn:hover { background: #ff69b4; color: #0a0a0f; }
+.provider-status { font-size: 10px; color: #555; margin-top: 4px; min-height: 14px; }
 
-/* Cards */
-.card { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 10px; }
-.card h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-.card .val { font-size: 20px; color: #00ff88; }
-.card .val.warn { color: #ffaa00; }
-.card .val.error { color: #ff4444; }
-.card .val.small { font-size: 12px; }
+/* Status colors — JINX PALETTE */
+.ok { color: #00ff88; }
+.warn { color: #ffaa00; }
+.error { color: #ff4444; }
+.offline { color: #ff0080; }
+.action { color: #00ffff; }
+.think { color: #ff69b4; }
 
-/* Drive bars */
-.drive-row { margin-bottom: 8px; }
-.drive-row .drive-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
-.drive-row .drive-name { font-size: 11px; color: #aaa; }
-.drive-row .drive-pct { font-size: 11px; font-weight: bold; }
-.drive-bar { height: 6px; background: #1a1a25; border-radius: 3px; overflow: hidden; }
-.drive-bar .drive-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
-.fill-ok { background: #00ff88; }
-.fill-warn { background: #ffaa00; }
-.fill-crit { background: #ff4444; }
-
-/* Tasks */
-.task-item { font-size: 11px; padding: 3px 0; border-bottom: 1px solid #1a1a25; color: #aaa; }
-.task-item:last-child { border-bottom: none; }
-.no-data { font-size: 11px; color: #444; font-style: italic; }
-
-/* Resources */
-.res-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
-.res-label { color: #666; }
-.res-val { color: #00ff88; }
-.res-val.warn { color: #ffaa00; }
-
-/* Thoughts — large area */
-.thoughts-box { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 8px; flex: 3; overflow-y: auto; }
-.thoughts-box h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; position: sticky; top: 0; background: #12121a; padding: 2px 0; }
-
-/* Logs — small area (1/4 of thoughts) */
-.log-box { background: #12121a; border: 1px solid #222; border-radius: 6px; padding: 8px; flex: 1; overflow-y: auto; }
-.log-box h3 { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; position: sticky; top: 0; background: #12121a; padding: 2px 0; }
-
-/* Thought items */
-.thought-item { padding: 6px 4px; border-bottom: 1px solid #1a1a25; }
-.thought-item:last-child { border-bottom: none; }
-.thought-ts { color: #444; font-size: 10px; margin-bottom: 2px; }
-.thought-text { font-size: 12px; color: #ddd; line-height: 1.4; word-wrap: break-word; }
+/* Progress bar */
+.progress { height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #ff0080, #ff00ff); transition: width 0.3s; }
 
 /* Log items */
 .log-line { padding: 2px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-line:hover { background: #1a1a25; }
 .log-line.error { color: #ff4444; background: rgba(255,68,68,0.1); }
-.log-line.action { color: #00ccff; }
-.log-line.think { color: #ffaa00; }
+.log-line.action { color: #00ffff; }
+.log-line.think { color: #ff69b4; }
 .log-line.ok { color: #00ff88; }
 .log-line .ts { color: #444; margin-right: 8px; }
 
 /* Error box */
-.error-box { background: rgba(255,68,68,0.1); border: 1px solid #ff4444; border-radius: 6px; padding: 8px; }
-.error-box h3 { color: #ff4444; font-size: 10px; text-transform: uppercase; margin-bottom: 4px; }
-.errors { color: #ff6666; font-size: 10px; }
+.error-box { background: rgba(255,68,68,0.1); border: 1px solid #ff4444; color: #ff4444; padding: 8px; border-radius: 4px; margin: 8px; font-size: 12px; }
 
-/* ReAct progress */
-.react-bar { height: 8px; background: #1a1a25; border-radius: 4px; overflow: hidden; margin-top: 4px; }
-.react-fill { height: 100%; background: #00ccff; border-radius: 4px; transition: width 0.5s; }
+/* API colors */
+.api-on { color: #00ff88; }
+.api-off { color: #ff4444; }
 
-.updated { color: #333; font-size: 10px; text-align: right; padding: 4px 12px; }
+/* JINX additions */
+.res-label { color: #ff69b4; }
+.res-val.warn { color: #ffaa00; text-shadow: 0 0 5px #ffaa00; }
+.crypto-up { color: #00ff88; }
+.crypto-down { color: #ff4444; }
+.neon-text { color: #ff0080; text-shadow: 0 0 5px #ff0080; }
 </style>
 </head>
 <body>
@@ -446,7 +636,25 @@ function renderLeftPanel(d) {
   html += '<div class="card"><h3>Статус</h3><div class="val">' + d.status + '</div></div>';
 
   // Model + Heartbeat
-  html += '<div class="card"><h3>Модель</h3><div class="val small">' + d.model + '</div></div>';
+  html += '<div class="card"><h3>Модель</h3><div class="val small">' + d.model + '</div>';
+  html += '<div class="provider-btns">';
+  html += '<button id="btn-minimax" class="provider-btn" onclick="switchProvider(&#39;minimax&#39;)">M2.7</button>';
+  html += '<button id="btn-glm" class="provider-btn" onclick="switchProvider(&#39;glm&#39;)">GLM-5</button>';
+  html += '</div>';
+  html += '<div class="provider-btns" style="margin-top:4px">';
+  html += '<button id="btn-toolchoice" class="provider-btn" onclick="toggleToolChoice()">🔧 Tools: ON</button>';
+  html += '<span id="missedTools" style="color:#ff69b4;font-size:11px;margin-left:8px"></span>';
+  html += '</div>';
+  html += '<div id="providerStatus" class="provider-status"></div>';
+  html += '<div class="provider-btns" style="margin-top:4px">';
+  html += '<span style="color:#888;font-size:11px">Тиков:</span>';
+  html += '<input id="ticksInput" type="number" min="1" max="30" value="' + (d.ticks_limit||15) + '" style="width:40px;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:2px 4px;border-radius:3px;font-size:12px;text-align:center">';
+  html += '<button class="provider-btn" onclick="applyTicks()" style="padding:2px 8px;font-size:11px">OK</button>';
+  html += '</div>';
+  html += '<div class="provider-btns" style="margin-top:4px">';
+  html += '<button class="provider-btn" onclick="restartJAWL()" style="border-color:#ff4444;color:#ff4444">🔄 Restart</button>';
+  html += '</div>';
+  html += '</div>';
   html += '<div class="card"><h3>Heartbeat</h3><div class="val" style="font-size:16px">' + d.heartbeat + '</div></div>';
 
   // ReAct Progress
@@ -489,6 +697,9 @@ function renderLeftPanel(d) {
   html += '<div class="res-row"><span class="res-label">CPU</span><span class="res-val ' + cpuCls + '">' + d.resources.cpu + '%</span></div>';
   html += '<div class="res-row"><span class="res-label">RAM</span><span class="res-val ' + ramCls + '">' + d.resources.ram_pct + '% (' + d.resources.ram_str + ')</span></div>';
   html += '</div>';
+
+  // Crypto Ticker
+  html += '<div class="card"><h3>📈 Crypto</h3><div id="cryptoBox"><div class="no-data">Загрузка...</div></div></div>';
 
   // Activity chart placeholder
   html += '<div class="card" style="flex:0 0 auto"><h3>ReAct шагов/мин</h3><canvas id="chart" width="220" height="80"></canvas></div>';
@@ -548,9 +759,145 @@ async function loadLogs() {
   } catch(e) { console.error(e); }
 }
 
+
+// Crypto ticker
+async function loadCrypto() {
+  try {
+    let r = await fetch('/api/crypto');
+    let coins = await r.json();
+    let box = document.getElementById('cryptoBox');
+    if (!box) return;
+    if (!coins.length) { box.innerHTML = '<div class="no-data">Нет данных</div>'; return; }
+    let html = '';
+    for (let c of coins) {
+      let chCls = c.change_24h >= 0 ? 'up' : 'down';
+      let chSign = c.change_24h >= 0 ? '+' : '';
+      let priceStr = c.price >= 1000 ? c.price.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0}) : c.price.toFixed(2);
+      html += '<div class="crypto-row">';
+      html += '<span class="crypto-name">' + c.icon + ' ' + c.name + '</span>';
+      html += '<span><span class="crypto-price">$' + priceStr + '</span>';
+      html += '<span class="crypto-change ' + chCls + '">' + chSign + c.change_24h.toFixed(2) + '%</span></span>';
+      html += '</div>';
+    }
+    html += '<div class="crypto-updated">Updated: ' + new Date().toLocaleTimeString() + '</div>';
+    box.innerHTML = html;
+  } catch(e) { console.error('Crypto fetch error:', e); }
+}
+
+loadCrypto();
 loadThoughts();
 loadLogs();
 loadLeftPanel();
+loadProviders();
+loadToolChoice();
+setInterval(loadToolChoice, 10000);
+setInterval(loadCrypto, 60000);
+async function loadProviders() {
+  try {
+    let r = await fetch("/api/providers");
+    let d = await r.json();
+    updateProviderUI(d.current);
+  } catch(e) { console.error(e); }
+}
+
+function updateProviderUI(current) {
+  let bm = document.getElementById("btn-minimax");
+  let bg = document.getElementById("btn-glm");
+  if (!bm || !bg) { console.warn("Provider buttons not yet rendered"); return; }
+  bm.style.color = current=="minimax" ? "#00ff88" : "#555";
+  bm.style.borderColor = current=="minimax" ? "#00ff88" : "#333";
+  bg.style.color = current=="glm" ? "#00ff88" : "#555";
+  bg.style.borderColor = current=="glm" ? "#00ff88" : "#333";
+  document.getElementById("providerStatus").textContent = current ? PROVIDERS[current].name + " selected" : "";
+}
+
+async function switchProvider(pid) {
+  let btn = document.getElementById("btn-"+pid);
+  btn.textContent = "...";
+  btn.disabled = true;
+  document.getElementById("providerStatus").textContent = "Switching...";
+  try {
+    let r = await fetch("/api/switch", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({provider: pid})
+    });
+    let d = await r.json();
+    if (d.ok) {
+      document.getElementById("providerStatus").textContent = "Restarted! PID:"+d.pid;
+      updateProviderUI(pid);
+      setTimeout(function() { location.reload(); }, 3000);
+    } else {
+      document.getElementById("providerStatus").textContent = "Error:"+(d.error||"?");
+    }
+  } catch(e) {
+    document.getElementById("providerStatus").textContent = "Error:"+e;
+  }
+  btn.disabled = false;
+  btn.textContent = pid=="minimax" ? "M2.7" : "GLM-5";
+}
+
+async function loadToolChoice() {
+  try {
+    let r = await fetch("/api/tool_choice");
+    let d = await r.json();
+    let btn = document.getElementById("btn-toolchoice");
+    if (btn) {
+      btn.textContent = d.enabled ? "🔧 Tools: ON" : "🔧 Tools: OFF";
+      btn.style.color = d.enabled ? "#00ff88" : "#ff4444";
+      btn.style.borderColor = d.enabled ? "#00ff88" : "#ff4444";
+    }
+    let miss = document.getElementById("missedTools");
+    if (miss && d.missed_30min > 0) miss.textContent = "⏭ " + d.missed_30min + " missed/30m";
+    else if (miss) miss.textContent = "";
+  } catch(e) { console.error(e); }
+}
+
+async function toggleToolChoice() {
+  try {
+    let r = await fetch("/api/tool_choice");
+    let d = await r.json();
+    let newVal = !d.enabled;
+    await fetch("/api/tool_choice", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({enabled: newVal})
+    });
+    loadToolChoice();
+  } catch(e) { console.error(e); }
+}
+
+async function applyTicks() {
+  let v = document.getElementById("ticksInput").value;
+  try {
+    let r = await fetch("/api/ticks_limit", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({limit: parseInt(v)})
+    });
+    let d = await r.json();
+    if (d.ok) {
+      document.getElementById("ticksInput").value = d.ticks_limit;
+      document.getElementById("ticksInput").style.borderColor = "#00ff88";
+      setTimeout(() => document.getElementById("ticksInput").style.borderColor = "#333", 1000);
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function restartJAWL() {
+  let btn = event.target;
+  btn.textContent = "⏳ Restarting...";
+  btn.disabled = true;
+  try {
+    let r = await fetch("/api/restart", {method: "POST"});
+    let d = await r.json();
+    btn.textContent = d.ok ? "✅ Restarted" : "❌ Error";
+  } catch(e) {
+    btn.textContent = "❌ Error";
+  }
+  setTimeout(() => { btn.textContent = "🔄 Restart"; btn.disabled = false; }, 3000);
+}
+
 setInterval(loadThoughts, 3000);
 setInterval(loadLogs, 3000);
 setInterval(loadLeftPanel, 3000);
@@ -561,6 +908,7 @@ async function drawChart() {
     let r = await fetch('/api/activity');
     let d = await r.json();
     let c = document.getElementById('chart');
+    if (!c) { console.warn("Chart canvas not found"); return; }
     let ctx = c.getContext('2d');
     let w = c.width, h = c.height;
     ctx.clearRect(0, 0, w, h);

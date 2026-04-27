@@ -28,6 +28,10 @@ class AgentState(BaseModel):
     max_tokens: int = 4096
     heartbeat_interval: int = 180
 
+    # Переключатель tool_choice
+    use_tool_choice: bool = True
+    missed_tool_calls: int = 0
+
     start_time: float = Field(default_factory=time.time)
 
     # Краткосрочная память для ассоциативного RAG и инжекта мультимодальности
