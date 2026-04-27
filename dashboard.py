@@ -10,6 +10,63 @@ from datetime import datetime, timezone, timedelta
 import json
 import urllib.request
 from flask import Flask, jsonify, render_template_string, request
+from qdrant_client import QdrantClient
+
+QDRANT_PATH = "/home/rem/JAWL/src/utils/local/data/vector_db"
+
+def get_qdrant_client():
+    """Создаёт подключение к локальному Qdrant."""
+    try:
+        client = QdrantClient(path=QDRANT_PATH)
+        return client
+    except Exception as e:
+        print(f"[Knowledge Viewer] Qdrant connection error: {e}")
+        return None
+
+
+def get_knowledge_entries(limit=50):
+    """Получает записи из Knowledge DB через Qdrant scroll."""
+    client = get_qdrant_client()
+    if not client:
+        return {"entries": [], "total": 0, "error": "Qdrant unavailable"}
+    
+    try:
+        points, next_offset = client.scroll(
+            collection_name="knowledge",
+            limit=limit,
+            with_payload=True,
+            with_vectors=False
+        )
+        
+        entries = []
+        for point in points:
+            payload = point.payload or {}
+            text = payload.get("text", "")
+            created_at = payload.get("created_at", 0)
+            preview = text[:200] + "..." if len(text) > 200 else text
+            entries.append({
+                "id": str(point.id),
+                "text": text,
+                "preview": preview,
+                "created_at": created_at,
+                "time_formatted": format_timestamp(created_at),
+                "char_count": len(text)
+            })
+        entries.sort(key=lambda x: x["created_at"], reverse=True)
+        return {"entries": entries, "total": len(entries)}
+    except Exception as e:
+        return {"entries": [], "total": 0, "error": str(e)}
+
+
+def format_timestamp(ts):
+    """Форматирует timestamp в читаемый вид."""
+    if not ts:
+        return "—"
+    try:
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    except:
+        return str(ts)
 import yaml
 
 LOG_FILE = "/home/rem/JAWL/logs/system.log"
@@ -212,7 +269,7 @@ def get_tasks():
 
 
 def get_thoughts(limit=100):
-    """Get thoughts (ticks) from database."""
+    """Get thoughts (ticks) from database — now with full_text field."""
     db = get_db()
     cur = db.cursor()
     cur.execute(
@@ -224,10 +281,14 @@ def get_thoughts(limit=100):
 
     thoughts = []
     for tid, ts, text in rows:
+        full = (text or "")
+        preview = full[:150] + ("..." if len(full) > 150 else "")
         thoughts.append({
             "id": tid[:8],
             "ts": ts,
-            "text": (text or "")[:600],
+            "text": preview,           # truncated for list view
+            "full_text": full,          # full text for expand
+            "is_long": len(full) > 150,  # flag: show expand button?
         })
     return thoughts
 
@@ -377,6 +438,10 @@ def api_activity():
 def api_crypto():
     return jsonify(fetch_crypto_prices())
 
+
+@app.route("/api/knowledge")
+def api_knowledge():
+    return jsonify(get_knowledge_entries())
 
 
 @app.route("/api/providers")
@@ -595,6 +660,278 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
 .crypto-up { color: #00ff88; }
 .crypto-down { color: #ff4444; }
 .neon-text { color: #ff0080; text-shadow: 0 0 5px #ff0080; }
+
+
+/* Thoughts expand/collapse */
+.thought-item {
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+}
+.thought-item:hover {
+    background: rgba(0, 255, 136, 0.05);
+    box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
+}
+.thought-item.expanded {
+    background: rgba(0, 255, 136, 0.08);
+    box-shadow: 0 0 12px rgba(0, 255, 136, 0.25);
+}
+.thought-full {
+    display: none;
+    color: #b0e0d0;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    margin-top: 6px;
+    padding: 8px;
+    background: rgba(0,0,0,0.3);
+    border-left: 2px solid #00ff88;
+    border-radius: 4px;
+}
+.thought-item.expanded .thought-full {
+    display: block;
+}
+.thought-expand-hint {
+    font-size: 9px;
+    color: #00ff88;
+    opacity: 0.6;
+    margin-top: 2px;
+}
+.thought-item.expanded .thought-expand-hint {
+    display: none;
+}
+
+/* Knowledge DB Viewer */
+.knowledge-controls {
+    margin-bottom: 12px;
+}
+.knowledge-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--jinx-pink);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.3s;
+}
+.knowledge-search-input:focus {
+    border-color: var(--jinx-blue);
+    box-shadow: 0 0 8px rgba(0, 200, 255, 0.3);
+}
+.knowledge-list {
+    max-height: 500px;
+    overflow-y: auto;
+}
+.knowledge-entry {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.knowledge-entry:hover {
+    border-color: var(--jinx-pink);
+    box-shadow: 0 0 6px rgba(255, 0, 110, 0.2);
+}
+.knowledge-entry-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.knowledge-entry-time {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.knowledge-entry-chars {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.05);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.knowledge-entry-preview {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+.knowledge-entry-full {
+    display: none;
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+.knowledge-entry.expanded .knowledge-entry-full {
+    display: block;
+}
+.knowledge-entry.expanded .knowledge-entry-preview {
+    display: none;
+}
+
+/* === MOBILE ADAPTATION — by Jinx 💙 === */
+
+/* Tablet breakpoint */
+@media (max-width: 1024px) {
+    .grid {
+        grid-template-columns: 200px 1fr;
+        gap: 8px;
+        padding: 8px;
+    }
+    .card { padding: 8px; }
+    .card h3 { font-size: 13px; }
+    h1 { font-size: 16px; padding: 10px 12px; }
+}
+
+/* Mobile breakpoint */
+@media (max-width: 768px) {
+    .grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+        height: auto;
+        min-height: calc(100vh - 50px);
+        overflow-y: auto;
+    }
+    
+    .left {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 6px;
+        overflow-y: visible;
+        max-height: none;
+    }
+    
+    .left .card {
+        flex: 1 1 calc(50% - 6px);
+        min-width: 140px;
+    }
+    
+    .right {
+        min-height: 300px;
+    }
+    
+    h1 {
+        font-size: 14px;
+        padding: 8px 10px;
+        flex-wrap: wrap;
+    }
+    
+    h1 .uptime {
+        font-size: 10px;
+        width: 100%;
+        margin-top: 4px;
+    }
+    
+    body { font-size: 11px; }
+    .card { padding: 6px; }
+    .card h3 { font-size: 12px; margin-bottom: 5px; padding-bottom: 4px; }
+    
+    .crypto-row {
+        flex-direction: column;
+        gap: 2px;
+    }
+    
+    .log-box {
+        flex: 0 0 120px;
+        font-size: 10px;
+    }
+    
+    .log-line {
+        font-size: 9px;
+        white-space: normal;
+        word-break: break-all;
+    }
+    
+    .thought-item {
+        padding: 3px 0;
+    }
+    
+    .thought-text {
+        font-size: 10px;
+    }
+    
+    .provider-btn {
+        padding: 4px 8px;
+        font-size: 10px;
+    }
+    
+    .card canvas#chart {
+        display: none;
+    }
+    
+    .drive-item {
+        font-size: 10px;
+    }
+    
+    .task-item {
+        font-size: 10px;
+        word-break: break-all;
+    }
+    
+    .provider-status {
+        font-size: 9px;
+    }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+    .grid {
+        padding: 4px;
+        gap: 4px;
+    }
+    
+    .left .card {
+        flex: 1 1 100%;
+    }
+    
+    h1 {
+        font-size: 13px;
+        padding: 6px 8px;
+    }
+    
+    body { font-size: 10px; }
+    .card { padding: 5px; }
+    .card h3 { font-size: 11px; }
+    
+    .log-box {
+        flex: 0 0 100px;
+    }
+    
+    .log-line {
+        font-size: 8px;
+    }
+    
+    .provider-btns {
+        flex-wrap: wrap;
+    }
+}
+
+/* Touch-friendly improvements for all small screens */
+@media (max-width: 768px) {
+    .provider-btn {
+        min-height: 36px;
+        min-width: 60px;
+    }
+    
+    button, .provider-btn {
+        -webkit-tap-highlight-color: #ff0080;
+    }
+    
+    .thoughts-box, .log-box, .left {
+        -webkit-overflow-scrolling: touch;
+        scroll-behavior: smooth;
+    }
+}
 </style>
 </head>
 <body>
@@ -709,6 +1046,11 @@ function renderLeftPanel(d) {
   // Activity chart placeholder
   html += '<div class="card" style="flex:0 0 auto"><h3>ReAct шагов/мин</h3><canvas id="chart" width="220" height="80"></canvas></div>';
 
+  // Knowledge DB
+  html += '<div class="card" id="knowledge-card"><h3>🧠 Knowledge DB <span id="knowledge-count" class="badge">0</span></h3>';
+  html += '<div class="knowledge-controls"><input type="text" id="knowledge-search" placeholder="🔍 Search knowledge..." class="knowledge-search-input" oninput="filterKnowledge()"></div>';
+  html += '<div id="knowledge-list" class="knowledge-list"></div></div>';
+
   // Errors
   if (d.errors && d.errors.length) {
     html += '<div class="error-box"><h3>❗ Ошибки</h3><div class="errors">';
@@ -730,18 +1072,41 @@ async function loadLeftPanel() {
   } catch(e) { console.error(e); }
 }
 
+// Expand/collapse state tracking (survives refreshes via ID)
+let expandedThoughts = new Set();
+
 // Live thought refresh
 async function loadThoughts() {
   try {
     let r = await fetch('/api/thoughts');
     let thoughts = await r.json();
     let box = document.getElementById('thoughtsBox');
-    let html = '<h3 style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:#12121a;padding:2px 0;">💡 Мысли</h3>';
+    let html = '<h3 style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:#12121a;padding:2px 0;">💡 Мысли <span style="color:#333;font-size:9px;">(кликни чтобы развернуть)</span></h3>';
     for (let t of thoughts) {
-      html += '<div class="thought-item"><div class="thought-ts">' + t.ts + '</div><div class="thought-text">' + t.text + '</div></div>';
+      let isExpanded = expandedThoughts.has(t.id);
+      let cls = isExpanded ? 'thought-item expanded' : 'thought-item';
+      html += '<div class="' + cls + '" data-id="' + t.id + '" onclick="toggleThought(this)" title="Кликни для ' + (isExpanded ? 'сворачивания' : 'разворачивания') + '">';
+      html += '<div class="thought-ts">' + t.ts + '</div>';
+      html += '<div class="thought-text">' + t.text + '</div>';
+      if (t.is_long) {
+        html += '<div class="thought-expand-hint">▼ показать полностью</div>';
+        html += '<div class="thought-full">' + t.full_text + '</div>';
+      }
+      html += '</div>';
     }
     box.innerHTML = html;
   } catch(e) { console.error(e); }
+}
+
+function toggleThought(el) {
+  let id = el.getAttribute('data-id');
+  if (expandedThoughts.has(id)) {
+    expandedThoughts.delete(id);
+    el.classList.remove('expanded');
+  } else {
+    expandedThoughts.add(id);
+    el.classList.add('expanded');
+  }
 }
 
 // Live log refresh
@@ -796,6 +1161,7 @@ loadThoughts();
 loadLogs();
 loadProviders();
 loadToolChoice();
+loadKnowledge();
 setInterval(loadToolChoice, 10000);
 setInterval(loadCrypto, 60000);
 async function loadProviders() {
@@ -947,6 +1313,60 @@ async function drawChart() {
 }
 drawChart();
 setInterval(drawChart, 5000);
+
+// Knowledge DB Viewer
+function loadKnowledge() {
+    fetch('/api/knowledge')
+        .then(r => r.json())
+        .then(data => {
+            window.knowledgeData = data.entries || [];
+            document.getElementById('knowledge-count').textContent = data.total;
+            renderKnowledge(window.knowledgeData);
+        })
+        .catch(e => console.error('Knowledge load error:', e));
+}
+
+function renderKnowledge(entries) {
+    const list = document.getElementById('knowledge-list');
+    if (!list) return;
+    if (!entries.length) {
+        list.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 20px;">No entries found</div>';
+        return;
+    }
+    let html = '';
+    for (const e of entries) {
+        html += `<div class="knowledge-entry" onclick="toggleKnowledge(this)" data-search="${escapeHtml(e.text.toLowerCase())}">
+            <div class="knowledge-entry-header">
+                <span class="knowledge-entry-time">${e.time_formatted}</span>
+                <span class="knowledge-entry-chars">${e.char_count} chars</span>
+            </div>
+            <div class="knowledge-entry-preview">${escapeHtml(e.preview)}</div>
+            <div class="knowledge-entry-full">${escapeHtml(e.text)}</div>
+        </div>`;
+    }
+    list.innerHTML = html;
+}
+
+function toggleKnowledge(el) {
+    el.classList.toggle('expanded');
+}
+
+function filterKnowledge() {
+    const query = document.getElementById('knowledge-search').value.toLowerCase();
+    if (!window.knowledgeData) return;
+    if (!query) {
+        renderKnowledge(window.knowledgeData);
+        return;
+    }
+    const filtered = window.knowledgeData.filter(e =>
+        e.text.toLowerCase().includes(query)
+    );
+    renderKnowledge(filtered);
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 </script>
 </body>
 </html>
