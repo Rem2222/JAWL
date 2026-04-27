@@ -6,8 +6,14 @@
       "url": "https://api.minimax.io/v1",
       "api_key_env": "LLM_API_KEY_MINIMAX",
       "models": {
-        "minimax-m2.7": {"name": "MiniMax-M2.7", "description": "MiniMax M2.7"},
-        "minimax-m2.5": {"name": "MiniMax-M2.5", "description": "MiniMax M2.5"}
+        "minimax-m2.7": {
+          "name": "MiniMax-M2.7",
+          "description": "MiniMax M2.7"
+        },
+        "minimax-m2.5": {
+          "name": "MiniMax-M2.5",
+          "description": "MiniMax M2.5"
+        }
       }
     },
     "glm": {
@@ -15,8 +21,14 @@
       "url": "https://api.z.ai/api/coding/paas/v4",
       "api_key_env": "LLM_API_KEY_ZAI",
       "models": {
-        "glm-5": {"name": "GLM-5", "description": "GLM-5 Z.AI"},
-        "glm-4.7": {"name": "GLM-4.7", "description": "GLM-4.7 Z.AI"}
+        "glm-5": {
+          "name": "GLM-5.1",
+          "description": "GLM-5 Z.AI"
+        },
+        "glm-4.7": {
+          "name": "GLM-4.7",
+          "description": "GLM-4.7 Z.AI"
+        }
       }
     },
     "kimi": {
@@ -24,8 +36,28 @@
       "url": "https://api.moonshot.cn/v1",
       "api_key_env": "LLM_API_KEY_KIMI",
       "models": {
-        "kimi-k2.5": {"name": "Kimi-K2.5", "description": "Moonshot Kimi K2.5"}
+        "kimi-k2.5": {
+          "name": "Kimi-K2.5",
+          "description": "Moonshot Kimi K2.5"
+        }
+      }
+    },
+    "cerebras": {
+      "name": "Cerebras",
+      "url": "https://api.cerebras.ai/v1",
+      "api_key_env": "LLM_API_KEY_CEREBRAS",
+      "models": {
+        "llama3.1-8b": {
+          "name": "Llama 3.1 8B",
+          "description": "Llama 3.1 8B (Cerebras, бесплатный)"
+        },
+        "qwen-3-235b-a22b-instruct-2507": {
+          "name": "Qwen 3 235B",
+          "description": "Qwen 3 235B (Cerebras, бесплатный)"
+        }
       }
     }
-  }
+  },
+  "current_provider": "cerebras",
+  "current_model": "qwen-3-235b-a22b-instruct-2507"
 }

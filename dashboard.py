@@ -212,9 +212,22 @@ def parse_status_from_logs():
             mins = int(m.group(3))
             uptime = f"{days}d {hours:02d}:{mins:02d}"
 
+    # Resolve display name from providers.json
+    model_display = model
+    try:
+        prov_cfg = load_providers()
+        for pid, pdata in prov_cfg.get("providers", {}).items():
+            for mid, mdata in pdata.get("models", {}).items():
+                if mid == model:
+                    model_display = pdata.get("name", pid) + ' / ' + mdata.get("name", mid)
+                    break
+    except:
+        pass
+
     return {
         "status": status,
         "model": model,
+        "model_display": model_display,
         "heartbeat": heartbeat,
         "agent_name": agent_name,
         "current_step": current_step,
@@ -477,51 +490,84 @@ def api_providers():
 @app.route("/api/switch", methods=["POST"])
 def api_switch():
     data = request.get_json()
-    pid = data.get("provider")
-    if pid not in PROVIDERS:
-        return jsonify({"error": "Unknown provider"}), 400
-    p = PROVIDERS[pid]
+    model_id = data.get("model")
 
+    # Load providers.json
+    with open(PROVIDERS_JSON) as f:
+        cfg = json.load(f)
+
+    # Find which provider has this model
+    provider_id = None
+    provider_cfg = None
+    model_cfg = None
+    for pid, pdata in cfg["providers"].items():
+        if model_id in pdata.get("models", {}):
+            provider_id = pid
+            provider_cfg = pdata
+            model_cfg = pdata["models"][model_id]
+            break
+
+    if not provider_cfg:
+        return jsonify({"error": f"Unknown model: {model_id}"}), 400
+
+    # Read API key from env var
+    env_var = provider_cfg.get("api_key_env", "LLM_API_KEY_1")
+    api_key = os.environ.get(env_var, "")
+    if not api_key:
+        # Try reading from .env
+        try:
+            with open(ENV_PATH) as f:
+                for ln in f:
+                    if ln.startswith(env_var + "="):
+                        api_key = ln.split("=", 1)[1].strip().strip('"')
+                        break
+        except:
+            pass
+
+    # Update settings.yaml
     with open(SETTINGS_PATH) as f:
-        cfg = yaml.safe_load(f)
-    cfg["llm"]["model_name"] = p["model"]
+        settings = yaml.safe_load(f)
+    settings["llm"]["model_name"] = model_id
     with open(SETTINGS_PATH, "w") as f:
-        yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.safe_dump(settings, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
-    if pid == "minimax":
-        key = ("sk-cp-JqkXlcj0NLALaq1zVJM33J4mwMs2U-Lj5lv3y3Ai2WTCDOB-JNwtjxAWeGSP8TL3jmsHVQ4aWS7u6j4uyVz8e9P_iX5gKm0fi1qUpx3npuwLXP1cQ9BQDzg")
-    else:
-        key = ("c421f4a13d9f4e499a059aa7153280d6.wIYrvNBYbVFWBElS")
-
+    # Update .env with url + key
     out = []
     has_u = has_k = False
     try:
         with open(ENV_PATH) as f:
             for ln in f:
                 if ln.startswith("LLM_API_URL="):
-                    out.append('LLM_API_URL="' + p["url"] + '"\n')
+                    out.append('LLM_API_URL="' + provider_cfg["url"] + '"\n')
                     has_u = True
                 elif ln.startswith("LLM_API_KEY_1="):
-                    out.append('LLM_API_KEY_1="' + key + '"\n')
+                    out.append('LLM_API_KEY_1="' + api_key + '"\n')
                     has_k = True
                 else:
                     out.append(ln)
     except:
         pass
     if not has_u:
-        out.append('LLM_API_URL="' + p["url"] + '"\n')
+        out.append('LLM_API_URL="' + provider_cfg["url"] + '"\n')
     if not has_k:
-        out.append('LLM_API_KEY_1="' + key + '"\n')
+        out.append('LLM_API_KEY_1="' + api_key + '"\n')
     with open(ENV_PATH, "w") as f:
         f.writelines(out)
 
+    # Save current selection to providers.json
+    cfg["current_provider"] = provider_id
+    cfg["current_model"] = model_id
+    with open(PROVIDERS_JSON, "w") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+    # Restart JAWL
     import subprocess
     try:
         with open(PID_FILE) as f:
             os.kill(int(f.read().strip()), 15)
     except:
         pass
-    subprocess.run("pkill -f 'python.*src/main.py' || true", shell=True)
+    subprocess.run("pkill -9 -f 'python.*src/main.py' || true", shell=True)
     time.sleep(2)
     proc = subprocess.Popen(
         [sys.executable, MAIN_SCRIPT],
@@ -533,7 +579,7 @@ def api_switch():
     with open(PID_FILE, "w") as f:
         f.write(str(proc.pid))
 
-    return jsonify({"ok": True, "pid": proc.pid, "provider": pid, "model": p["model"]})
+    return jsonify({"ok": True, "pid": proc.pid, "provider": provider_id, "model": model_id, "model_name": model_cfg.get("name", model_id)})
 
 
 @app.route("/api/tool_choice", methods=["GET", "POST"])
@@ -1082,7 +1128,7 @@ function renderLeftPanel(d) {
 
   // Provider + Model selector
   html += '<div class="card"><h3>⚙️ Модель</h3>';
-  html += '<div class="val small" id="modelCurrentDisplay">' + (d.model || '—') + '</div>';
+  html += '<div class="val small" id="modelCurrentDisplay">' + (d.model_display || d.model || '—') + '</div>';
   html += '<div style="margin-top:6px">';
   html += '<select id="providerSelect" onchange="onProviderChanged()" style="width:100%;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:12px;margin-bottom:4px">';
   html += '</select>';
@@ -1262,58 +1308,102 @@ async function loadCrypto() {
   } catch(e) { console.error('Crypto fetch error:', e); }
 }
 
-loadLeftPanel();
+loadLeftPanel().then(() => {
+  loadProviders();
+  loadKnowledge();
+  drawChart();
+});
 loadCrypto();
 loadThoughts();
 loadLogs();
-loadProviders();
 loadToolChoice();
-loadKnowledge();
 setInterval(loadToolChoice, 10000);
 setInterval(loadCrypto, 60000);
+let PROVIDERS_DATA = {};
+let currentProviderId = null;
+let currentModelId = null;
+
 async function loadProviders() {
   try {
     let r = await fetch("/api/providers");
     let d = await r.json();
-    updateProviderUI(d.current);
-  } catch(e) { console.error(e); }
+    PROVIDERS_DATA = d.providers || {};
+    currentProviderId = d.current_provider;
+    currentModelId = d.current_model;
+    populateDropdowns();
+  } catch(e) { console.error('Providers load error:', e); }
 }
 
-function updateProviderUI(current) {
-  let bm = document.getElementById("btn-minimax");
-  let bg = document.getElementById("btn-glm");
-  if (!bm || !bg) { console.warn("Provider buttons not yet rendered"); return; }
-  bm.style.color = current=="minimax" ? "#00ff88" : "#555";
-  bm.style.borderColor = current=="minimax" ? "#00ff88" : "#333";
-  bg.style.color = current=="glm" ? "#00ff88" : "#555";
-  bg.style.borderColor = current=="glm" ? "#00ff88" : "#333";
-  document.getElementById("providerStatus").textContent = current ? PROVIDERS[current].name + " selected" : "";
+function populateDropdowns() {
+  let pSelect = document.getElementById("providerSelect");
+  let mSelect = document.getElementById("modelSelect");
+  if (!pSelect || !mSelect) {
+    // DOM not ready — retry after short delay
+    setTimeout(populateDropdowns, 300);
+    return;
+  }
+
+  for (let [pid, pdata] of Object.entries(PROVIDERS_DATA)) {
+    let opt = document.createElement("option");
+    opt.value = pid;
+    opt.textContent = pdata.name || pid;
+    if (pid === currentProviderId) opt.selected = true;
+    pSelect.appendChild(opt);
+  }
+
+  mSelect.innerHTML = '';
+  if (PROVIDERS_DATA[currentProviderId]) {
+    for (let [mid, mdata] of Object.entries(PROVIDERS_DATA[currentProviderId].models || {})) {
+      let opt = document.createElement("option");
+      opt.value = mid;
+      opt.textContent = mdata.name || mid;
+      if (mid === currentModelId) opt.selected = true;
+      mSelect.appendChild(opt);
+    }
+  }
+
+  // modelCurrentDisplay is set from real logs by renderLeftPanel(d)
+  // Dropdown just shows selection state, not actual running model
 }
 
-async function switchProvider(pid) {
-  let btn = document.getElementById("btn-"+pid);
-  btn.textContent = "...";
+function onProviderChanged() {
+  let pSelect = document.getElementById("providerSelect");
+  let mSelect = document.getElementById("modelSelect");
+  if (!pSelect || !mSelect) return;
+  let pid = pSelect.value;
+  mSelect.innerHTML = '';
+  for (let [mid, mdata] of Object.entries(PROVIDERS_DATA[pid]?.models || {})) {
+    let opt = document.createElement("option");
+    opt.value = mid;
+    opt.textContent = mdata.name || mid;
+    mSelect.appendChild(opt);
+  }
+}
+
+async function doSwitchModel() {
+  let mSelect = document.getElementById("modelSelect");
+  let btn = document.getElementById("btn-switch-model");
+  if (!mSelect || !btn) return;
+  let modelId = mSelect.value;
+  btn.textContent = "⏳...";
   btn.disabled = true;
-  document.getElementById("providerStatus").textContent = "Switching...";
   try {
     let r = await fetch("/api/switch", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({provider: pid})
+      body: JSON.stringify({ model: modelId })
     });
     let d = await r.json();
+    if (d.error) { alert("Ошибка: " + d.error); }
     if (d.ok) {
-      document.getElementById("providerStatus").textContent = "Restarted! PID:"+d.pid;
-      updateProviderUI(pid);
-      setTimeout(function() { location.reload(); }, 3000);
-    } else {
-      document.getElementById("providerStatus").textContent = "Error:"+(d.error||"?");
+      currentProviderId = d.provider;
+      currentModelId = d.model;
+      populateDropdowns();
+      setTimeout(function() { location.reload(); }, 2500);
     }
-  } catch(e) {
-    document.getElementById("providerStatus").textContent = "Error:"+e;
-  }
+  } catch(e) { alert("Error: " + e); }
+  btn.textContent = "🔄 Переключить";
   btn.disabled = false;
-  btn.textContent = pid=="minimax" ? "M2.7" : "GLM-5";
 }
 
 async function loadToolChoice() {
@@ -1418,7 +1508,7 @@ async function drawChart() {
     ctx.fillText(max, w - 20, 10);
   } catch(e) { console.error(e); }
 }
-drawChart();
+// drawChart called from init chain and setInterval below
 setInterval(drawChart, 5000);
 
 // Knowledge DB Viewer
@@ -1427,7 +1517,8 @@ function loadKnowledge() {
         .then(r => r.json())
         .then(data => {
             window.knowledgeData = data.entries || [];
-            document.getElementById('knowledge-count').textContent = data.total;
+            const kcEl = document.getElementById('knowledge-count');
+            if (kcEl) kcEl.textContent = data.total;
             renderKnowledge(window.knowledgeData);
         })
         .catch(e => console.error('Knowledge load error:', e));

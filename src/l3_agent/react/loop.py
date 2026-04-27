@@ -219,7 +219,7 @@ class ReactLoop:
                             if isinstance(json_data, dict) and "thoughts" in json_data:
                                 fallback_parsed = AgentResponse.model_validate(json_data)
                                 system_logger.info("[ReAct] Fallback JSON (direct) OK.")
-                        except (json.JSONDecodeError, ValidationError) as e:
+                        except (_json.JSONDecodeError, ValidationError) as e:
                             system_logger.warning(f"[ReAct] Direct JSON failed: {e}")
 
                         # Попытка 2: вытащить JSON из markdown блока или текста
