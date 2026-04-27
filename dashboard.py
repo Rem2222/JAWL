@@ -100,7 +100,10 @@ def parse_status_from_logs():
         elif " запущен в фоновом режиме" in lc:
             status = "● ONLINE"
 
-        m = re.search(r'Model:\s*(\S+)', lc)
+        # Skip lines that are actually Python regex patterns (contain \S+, \s*, etc.)
+        if '\\S+' in lc or '\\s*' in lc:
+            continue
+        m = re.search(r'Model:\s*([a-zA-Z0-9_.\-]+)', lc)
         if m: model = m.group(1)
         m = re.search(r'Heartbeat:\s*(\S+)', lc)
         if m: heartbeat = m.group(1)
@@ -123,7 +126,7 @@ def parse_status_from_logs():
 
         # Uptime — from last "Инициализация JAWL"
         m_ts = re.match(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', lc)
-        if m_ts and 'Инициализация JAWL' in lc:
+        if m_ts and 'Инициализация JAWL' in lc and '[System]' in lc:
             try:
                 start = datetime.strptime(m_ts.group(1), "%Y-%m-%d %H:%M:%S")
                 now = datetime.now()
@@ -644,6 +647,8 @@ function renderLeftPanel(d) {
   html += '<div class="provider-btns" style="margin-top:4px">';
   html += '<button id="btn-toolchoice" class="provider-btn" onclick="toggleToolChoice()">🔧 Tools: ON</button>';
   html += '<span id="missedTools" style="color:#ff69b4;font-size:11px;margin-left:8px"></span>';
+  // Fetch missed count and update after render
+  setTimeout(function(){ loadToolChoice(); }, 500);
   html += '</div>';
   html += '<div id="providerStatus" class="provider-status"></div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
@@ -714,6 +719,7 @@ function renderLeftPanel(d) {
   document.getElementById('leftPanel').innerHTML = html;
   // Redraw chart after DOM update
   drawChart();
+  loadCrypto();
 }
 
 async function loadLeftPanel() {
@@ -784,10 +790,10 @@ async function loadCrypto() {
   } catch(e) { console.error('Crypto fetch error:', e); }
 }
 
+loadLeftPanel();
 loadCrypto();
 loadThoughts();
 loadLogs();
-loadLeftPanel();
 loadProviders();
 loadToolChoice();
 setInterval(loadToolChoice, 10000);
@@ -848,8 +854,7 @@ async function loadToolChoice() {
       btn.style.borderColor = d.enabled ? "#00ff88" : "#ff4444";
     }
     let miss = document.getElementById("missedTools");
-    if (miss && d.missed_30min > 0) miss.textContent = "⏭ " + d.missed_30min + " missed/30m";
-    else if (miss) miss.textContent = "";
+    if (miss) { miss.textContent = d.missed_30min > 0 ? "⏭ " + d.missed_30min + " missed/30m" : ""; }
   } catch(e) { console.error(e); }
 }
 
@@ -900,7 +905,7 @@ async function restartJAWL() {
 
 setInterval(loadThoughts, 3000);
 setInterval(loadLogs, 3000);
-setInterval(loadLeftPanel, 3000);
+// Periodic polling removed — causes flicker
 
 // Activity chart
 async function drawChart() {
