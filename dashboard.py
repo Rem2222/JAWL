@@ -76,10 +76,33 @@ ENV_PATH = "/home/rem/JAWL/.env"
 MAIN_SCRIPT = "/home/rem/JAWL/src/main.py"
 PID_FILE = "/tmp/jawl.pid"
 
-PROVIDERS = {
-    "minimax": {"name": "MiniMax M2.7", "url": "https://api.minimax.io/v1", "model": "minimax-m2.7", "icon": "M2.7"},
-    "glm": {"name": "GLM-5 (Z.AI)", "url": "https://api.z.ai/api/coding/paas/v4", "model": "glm-5", "icon": "GLM"},
-}
+import os
+
+PROVIDERS_JSON = "/home/rem/JAWL/config/providers.json"
+
+def load_providers():
+    try:
+        with open(PROVIDERS_JSON) as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        print(f"[Dashboard] Failed to load providers.json: {e}")
+        return {"default_model": "glm-5", "providers": {}}
+
+def get_current_provider_model():
+    """Return (provider_id, model_id) for currently active config."""
+    try:
+        with open(SETTINGS_PATH) as f:
+            cfg = yaml.safe_load(f)
+        current_model = cfg.get("llm", {}).get("model_name", "")
+        providers = load_providers().get("providers", {})
+        for pid, pdata in providers.items():
+            for mid, mdata in pdata.get("models", {}).items():
+                if mid == current_model:
+                    return pid, mid
+        return None, current_model
+    except:
+        return None, None
 
 
 app = Flask(__name__)
@@ -181,18 +204,13 @@ def parse_status_from_logs():
             if action_text and len(action_text) > 5:
                 last_action = action_text
 
-        # Uptime — from last "Инициализация JAWL"
-        m_ts = re.match(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', lc)
-        if m_ts and 'Инициализация JAWL' in lc and '[System]' in lc:
-            try:
-                start = datetime.strptime(m_ts.group(1), "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
-                delta = now - start
-                hours, rem = divmod(int(delta.total_seconds()), 3600)
-                minutes, secs = divmod(rem, 60)
-                uptime = f"{hours:02d}:{minutes:02d}:{secs:02d}"
-            except Exception:
-                pass
+        # Uptime — from "up X days, H:M" in STDOUT of uptime command
+        m = re.search(r'up (\d+) days?,\s*(\d+):(\d+)', lc)
+        if m:
+            days = int(m.group(1))
+            hours = int(m.group(2))
+            mins = int(m.group(3))
+            uptime = f"{days}d {hours:02d}:{mins:02d}"
 
     return {
         "status": status,
@@ -446,18 +464,14 @@ def api_knowledge():
 
 @app.route("/api/providers")
 def api_providers():
-    current = None
-    try:
-        with open(SETTINGS_PATH) as f:
-            cfg = yaml.safe_load(f)
-        m = cfg.get("llm", {}).get("model_name", "")
-        for pid, p in PROVIDERS.items():
-            if p["model"] == m:
-                current = pid
-                break
-    except:
-        pass
-    return jsonify({"current": current, "providers": PROVIDERS})
+    data = load_providers()
+    current_provider, current_model = get_current_provider_model()
+    return jsonify({
+        "current_provider": current_provider,
+        "current_model": current_model,
+        "default_model": data.get("default_model", "glm-5"),
+        "providers": data.get("providers", {})
+    })
 
 
 @app.route("/api/switch", methods=["POST"])
@@ -582,6 +596,17 @@ TEMPLATE = '''
 <title>JAWL Dashboard</title>
 <style>
 /* JINX STYLING — Neon Pink/Magenta Theme */
+:root {
+  --jinx-pink: #ff0080;
+  --jinx-blue: #00ccff;
+  --jinx-green: #00ff88;
+  --jinx-yellow: #ffaa00;
+  --jinx-red: #ff4444;
+  --card-bg: #12121a;
+  --text-primary: #c0c0c0;
+  --text-secondary: #888;
+  --text-muted: #555;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0a0f; color: #c0c0c0; font-family: 'Courier New', monospace; font-size: 13px; }
 h1 { 
@@ -595,7 +620,60 @@ h1 {
     text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff;
     animation: glow 2s ease-in-out infinite alternate;
 }
-h1 .uptime { font-size: 12px; color: #ff69b4; }
+
+h1 .crypto-header {
+    font-size: 11px;
+    margin-left: 20px;
+    display: inline-flex;
+    gap: 12px;
+}
+
+.crypto-header .crypto-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.crypto-header .crypto-name {
+    color: #00ccff;
+    font-weight: bold;
+}
+
+.crypto-header .crypto-price {
+    color: #ddd;
+    font-family: 'Courier New', monospace;
+}
+
+.crypto-header .crypto-change {
+    font-size: 9px;
+}
+
+.crypto-header .crypto-change.up { color: #00ff88; }
+.crypto-header .crypto-change.down { color: #ff4444; }
+
+.bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 36px;
+    background: #0a0a12;
+    border-top: 1px solid #ff0080;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    font-size: 11px;
+    color: #888;
+    z-index: 100;
+    box-shadow: 0 -2px 10px rgba(255,0,128,0.2);
+}
+.bottom-bar .bb-sep { color: #333; }
+#bb-status { color: #00ff88; font-weight: bold; }
+#bb-uptime { color: #ff69b4; }
+#bb-heartbeat { color: #00ccff; }
+#bb-cpu { color: #ffaa00; }
+#bb-ram { color: #ffaa00; }
 
 @keyframes glow {
     from { text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff; }
@@ -611,15 +689,16 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
     100% { transform: translate(0); }
 }
 
-.grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px; height: calc(100vh - 50px); overflow: hidden; }
-.left { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.grid { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px 12px 60px; height: calc(100vh - 50px); overflow: hidden; }
+.left { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; }
+.left > * { overflow-x: hidden; }
 .right { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
 .card { background: #12121a; border: 1px solid #222; border-radius: 4px; padding: 10px; }
 .card:hover { border-color: #ff0080; box-shadow: 0 0 10px rgba(255,0,128,0.3); }
 .card h3 { color: #ff69b4; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #222; padding-bottom: 6px; }
-.log-box { flex: 0 0 160px; overflow-y: auto; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
+.log-box { flex: 0 0 160px; overflow-y: auto; overflow-x: hidden; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
 .log-box h3 { color: #ff69b4; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-.thoughts-box { flex: 1; overflow-y: auto; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
+.thoughts-box { flex: 1; overflow-y: auto; overflow-x: hidden; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
 .thoughts-box h3 { color: #ff69b4; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .provider-btns { display: flex; gap: 6px; margin-top: 8px; }
 .provider-btn { background: #1a1a2e; border: 1px solid #ff69b4; color: #ff69b4; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
@@ -639,7 +718,7 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, #ff0080, #ff00ff); transition: width 0.3s; }
 
 /* Log items */
-.log-line { padding: 2px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-line { padding: 2px 4px; font-size: 11px; white-space: pre-wrap; word-break: break-word; overflow: hidden; text-overflow: ellipsis; }
 .log-line:hover { background: #1a1a25; }
 .log-line.error { color: #ff4444; background: rgba(255,68,68,0.1); }
 .log-line.action { color: #00ffff; }
@@ -779,6 +858,12 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
     display: none;
 }
 
+/* === CUSTOM SCROLLBARS — JAWL Theme === */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0a0a0f; }
+::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #ff0080; }
+
 /* === MOBILE ADAPTATION — by Jinx 💙 === */
 
 /* Tablet breakpoint */
@@ -836,7 +921,9 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
     .card { padding: 6px; }
     .card h3 { font-size: 12px; margin-bottom: 5px; padding-bottom: 4px; }
     
-    .crypto-row {
+    
+.crypto-card-hidden { display: none !important; }
+.crypto-row {
         flex-direction: column;
         gap: 2px;
     }
@@ -873,9 +960,16 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
         font-size: 10px;
     }
     
+    .task-list { margin: 0; padding-left: 16px; color: #aaa; }
+
     .task-item {
         font-size: 10px;
-        word-break: break-all;
+        word-break: break-word;
+        white-space: normal;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        max-width: 100%;
     }
     
     .provider-status {
@@ -937,7 +1031,7 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
 <body>
 <h1>
   <span>⚡ JAWL Dashboard — {{ agent_name }}</span>
-  <span class="uptime">⏱ Uptime: {{ uptime }}</span>
+  <span id="cryptoBox" class="crypto-header"></span>
 </h1>
 
 <div class="grid">
@@ -967,27 +1061,42 @@ h1 .uptime { font-size: 12px; color: #ff69b4; }
 
 <div class="updated">Updated: {{ updated }}</div>
 
+<div class="bottom-bar" id="bottomBar">
+  <span id="bb-status"></span>
+  <span class="bb-sep">|</span>
+  <span id="bb-heartbeat"></span>
+  <span class="bb-sep">|</span>
+  <span id="bb-uptime"></span>
+  <span class="bb-sep">|</span>
+  <span id="bb-cpu"></span>
+  <span class="bb-sep">|</span>
+  <span id="bb-ram"></span>
+</div>
+
 <script>
 // Full left panel refresh
 function renderLeftPanel(d) {
   let html = '';
 
-  // Status
-  html += '<div class="card"><h3>Статус</h3><div class="val">' + d.status + '</div></div>';
 
-  // Model + Heartbeat
-  html += '<div class="card"><h3>Модель</h3><div class="val small">' + d.model + '</div>';
-  html += '<div class="provider-btns">';
-  html += '<button id="btn-minimax" class="provider-btn" onclick="switchProvider(&#39;minimax&#39;)">M2.7</button>';
-  html += '<button id="btn-glm" class="provider-btn" onclick="switchProvider(&#39;glm&#39;)">GLM-5</button>';
+
+  // Provider + Model selector
+  html += '<div class="card"><h3>⚙️ Модель</h3>';
+  html += '<div class="val small" id="modelCurrentDisplay">' + (d.model || '—') + '</div>';
+  html += '<div style="margin-top:6px">';
+  html += '<select id="providerSelect" onchange="onProviderChanged()" style="width:100%;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:12px;margin-bottom:4px">';
+  html += '</select>';
+  html += '<select id="modelSelect" style="width:100%;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:12px">';
+  html += '</select>';
+  html += '</div>';
+  html += '<div class="provider-btns" style="margin-top:6px">';
+  html += '<button id="btn-switch-model" class="provider-btn" onclick="doSwitchModel()">🔄 Переключить</button>';
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
   html += '<button id="btn-toolchoice" class="provider-btn" onclick="toggleToolChoice()">🔧 Tools: ON</button>';
   html += '<span id="missedTools" style="color:#ff69b4;font-size:11px;margin-left:8px"></span>';
-  // Fetch missed count and update after render
   setTimeout(function(){ loadToolChoice(); }, 500);
   html += '</div>';
-  html += '<div id="providerStatus" class="provider-status"></div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
   html += '<span style="color:#888;font-size:11px">Тиков:</span>';
   html += '<input id="ticksInput" type="number" min="1" max="30" value="' + (d.ticks_limit||15) + '" style="width:40px;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:2px 4px;border-radius:3px;font-size:12px;text-align:center">';
@@ -997,7 +1106,7 @@ function renderLeftPanel(d) {
   html += '<button class="provider-btn" onclick="restartJAWL()" style="border-color:#ff4444;color:#ff4444">🔄 Restart</button>';
   html += '</div>';
   html += '</div>';
-  html += '<div class="card"><h3>Heartbeat</h3><div class="val" style="font-size:16px">' + d.heartbeat + '</div></div>';
+
 
   // ReAct Progress
   html += '<div class="card"><h3>ReAct Progress</h3>';
@@ -1026,22 +1135,14 @@ function renderLeftPanel(d) {
   // Tasks
   html += '<div class="card"><h3>📋 Задачи (' + d.tasks.length + ')</h3>';
   if (d.tasks.length) {
-    for (let t of d.tasks) html += '<div class="task-item">' + (t.description || '').substring(0, 60) + '</div>';
+    html += '<ul class="task-list">';
+    for (let t of d.tasks) html += '<li class="task-item">' + (t.description || '').substring(0, 60) + '</li>';
+    html += '</ul>';
   } else {
     html += '<div class="no-data">Нет активных задач</div>';
   }
   html += '</div>';
 
-  // Resources
-  let cpuCls = d.resources.cpu > 60 ? 'warn' : '';
-  let ramCls = d.resources.ram_pct > 80 ? 'warn' : '';
-  html += '<div class="card"><h3>🧮 Ресурсы</h3>';
-  html += '<div class="res-row"><span class="res-label">CPU</span><span class="res-val ' + cpuCls + '">' + d.resources.cpu + '%</span></div>';
-  html += '<div class="res-row"><span class="res-label">RAM</span><span class="res-val ' + ramCls + '">' + d.resources.ram_pct + '% (' + d.resources.ram_str + ')</span></div>';
-  html += '</div>';
-
-  // Crypto Ticker
-  html += '<div class="card"><h3>📈 Crypto</h3><div id="cryptoBox"><div class="no-data">Загрузка...</div></div></div>';
 
   // Activity chart placeholder
   html += '<div class="card" style="flex:0 0 auto"><h3>ReAct шагов/мин</h3><canvas id="chart" width="220" height="80"></canvas></div>';
@@ -1057,6 +1158,13 @@ function renderLeftPanel(d) {
     for (let e of d.errors) html += e + '<br>';
     html += '</div></div>';
   }
+
+  // Bottom bar
+  document.getElementById('bb-status').textContent = d.status;
+  document.getElementById('bb-uptime').textContent = '⏱ ' + d.uptime;
+  document.getElementById('bb-heartbeat').textContent = '♥ ' + d.heartbeat;
+  document.getElementById('bb-cpu').textContent = 'CPU ' + d.resources.cpu + '%';
+  document.getElementById('bb-ram').textContent = 'RAM ' + d.resources.ram_pct + '%';
 
   document.getElementById('leftPanel').innerHTML = html;
   // Redraw chart after DOM update
@@ -1138,19 +1246,18 @@ async function loadCrypto() {
     let coins = await r.json();
     let box = document.getElementById('cryptoBox');
     if (!box) return;
-    if (!coins.length) { box.innerHTML = '<div class="no-data">Нет данных</div>'; return; }
+    if (!coins.length) { box.innerHTML = '<span class="no-data">Нет данных</span>'; return; }
     let html = '';
     for (let c of coins) {
       let chCls = c.change_24h >= 0 ? 'up' : 'down';
       let chSign = c.change_24h >= 0 ? '+' : '';
       let priceStr = c.price >= 1000 ? c.price.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0}) : c.price.toFixed(2);
-      html += '<div class="crypto-row">';
-      html += '<span class="crypto-name">' + c.icon + ' ' + c.name + '</span>';
-      html += '<span><span class="crypto-price">$' + priceStr + '</span>';
-      html += '<span class="crypto-change ' + chCls + '">' + chSign + c.change_24h.toFixed(2) + '%</span></span>';
-      html += '</div>';
+      html += '<span class="crypto-item">';
+      html += '<span class="crypto-name">' + c.icon + '</span>';
+      html += '<span class="crypto-price">' + priceStr + '</span>';
+      html += '<span class="crypto-change ' + chCls + '">' + chSign + c.change_24h.toFixed(1) + '%</span>';
+      html += '</span>';
     }
-    html += '<div class="crypto-updated">Updated: ' + new Date().toLocaleTimeString() + '</div>';
     box.innerHTML = html;
   } catch(e) { console.error('Crypto fetch error:', e); }
 }

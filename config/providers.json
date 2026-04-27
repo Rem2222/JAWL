@@ -1,0 +1,31 @@
+{
+  "default_model": "glm-5",
+  "providers": {
+    "minimax": {
+      "name": "MiniMax",
+      "url": "https://api.minimax.io/v1",
+      "api_key_env": "LLM_API_KEY_MINIMAX",
+      "models": {
+        "minimax-m2.7": {"name": "MiniMax-M2.7", "description": "MiniMax M2.7"},
+        "minimax-m2.5": {"name": "MiniMax-M2.5", "description": "MiniMax M2.5"}
+      }
+    },
+    "glm": {
+      "name": "GLM-5 (Z.AI)",
+      "url": "https://api.z.ai/api/coding/paas/v4",
+      "api_key_env": "LLM_API_KEY_ZAI",
+      "models": {
+        "glm-5": {"name": "GLM-5", "description": "GLM-5 Z.AI"},
+        "glm-4.7": {"name": "GLM-4.7", "description": "GLM-4.7 Z.AI"}
+      }
+    },
+    "kimi": {
+      "name": "Kimi",
+      "url": "https://api.moonshot.cn/v1",
+      "api_key_env": "LLM_API_KEY_KIMI",
+      "models": {
+        "kimi-k2.5": {"name": "Kimi-K2.5", "description": "Moonshot Kimi K2.5"}
+      }
+    }
+  }
+}
