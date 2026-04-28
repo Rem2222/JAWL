@@ -35,3 +35,11 @@ TODO.md
 copy_all_code.py
 all_code.txt
 architecture.canvas
+# Sensitive configs (with real API keys)
+config/SETTINGS_*.md
+config/providers.json
+.env.glm-backup-*
+.env.minimax-backup
+.env.backup_minimax_*
+dashboard.py.backup*
+dashboard.py.jinx_backup*
