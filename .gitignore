@@ -43,3 +43,10 @@ config/providers.json
 .env.backup_minimax_*
 dashboard.py.backup*
 dashboard.py.jinx_backup*
+
+# JAWL personal AI configs (contain private personality/lore info)
+src/l3_agent/prompt/personality/
+src/l3_agent/prompt/system/DRIVES.md
+src/l3_agent/prompt/system/FUNCTION_CALL.md
+src/l3_agent/prompt/system/INSTRUCTIONS.md
+src/l3_agent/prompt/builder.py
