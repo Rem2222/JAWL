@@ -20,7 +20,7 @@ class AgentState(BaseModel):
 
     # Настройки LLM
     llm_model: str = "unknown"
-    temperature: float = 0.7
+    temperature: float = 0.9
 
     # ReAct цикл
     current_step: int = 1

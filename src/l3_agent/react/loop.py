@@ -24,6 +24,71 @@ from src.l3_agent.skills.registry import execute_skill
 from src.l3_agent.skills.schema import AgentResponse
 
 
+# Models that require OpenAI Responses API format (not Chat Completions)
+# These models use session.responses.create(input=...) instead of session.chat.completions.create(messages=...)
+_RESPONSES_API_MODELS = {
+    "gpt-5-nano",
+    "ling-2.6-flash-free",
+}
+
+
+def _uses_responses_api(model_name: str) -> bool:
+    """Check if a model requires Responses API format."""
+    return model_name in _RESPONSES_API_MODELS
+
+
+def _extract_response_content(response, api_format: str) -> tuple[Any, str]:
+    """
+    Extract content from API response based on format.
+    Returns (message_obj, raw_answer).
+    For Chat API: message_obj has .tool_calls and .content
+    For Responses API: different structure
+    """
+    if api_format == "responses":
+        # Responses API structure: response.output[0].content[0].text
+        # IMPORTANT: skip ResponseReasoningItem — it has no content/message
+        try:
+            output = response.output
+            if output and len(output) > 0:
+                text = ""
+                for item in output:
+                    # Skip reasoning/function items — they have no user message
+                    item_type = getattr(item, 'type', '')
+                    if item_type in ('reasoning', 'function_call', 'function_calls'):
+                        continue
+                    # ResponseMessageItem has content=list of ContentPart
+                    if hasattr(item, 'content') and item.content:
+                        for part in item.content:
+                            if hasattr(part, 'text') and part.text:
+                                text = part.text
+                                break
+                        if text:
+                            break
+                    elif hasattr(item, 'text'):
+                        text = item.text
+                        break
+
+                if not text:
+                    text = str(output[0]) if output else ""
+
+                class MockMessage:
+                    def __init__(self, content):
+                        self.content = content
+                        self.tool_calls = None
+
+                return MockMessage(content=text), text
+            else:
+                return None, ""
+        except Exception as e:
+            system_logger.error(f"[ReAct] Responses API parse error: {e}")
+            return None, str(response)
+    else:
+        # Chat API structure: response.choices[0].message
+        message_obj = response.choices[0].message
+        raw_answer = message_obj.content or ""
+        return message_obj, raw_answer
+
+
 class ReactLoop:
     """
     Ядро автономного агента.
@@ -109,53 +174,70 @@ class ReactLoop:
                     except FileNotFoundError:
                         self.agent_state.use_tool_choice = True
 
-                    # --- Переключатель: tool_choice или сразу free-form ---
-                    if self.agent_state.use_tool_choice:
-                        # Режим 1: пробуем forced tool_choice
-                        response = await session.chat.completions.create(
-                            model=self.agent_state.llm_model,
-                            messages=api_messages,
-                            tools=self.tools,
-                            tool_choice={
-                                "type": "function",
-                                "function": {"name": "execute_skill"},
-                            },
-                            temperature=self.agent_state.temperature,
-                            max_tokens=self.agent_state.max_tokens,
+                    # Определяем формат API (Responses vs Chat Completions)
+                    model_name = self.agent_state.llm_model
+                    use_responses_api = _uses_responses_api(model_name)
+                    api_format = "responses" if use_responses_api else "chat"
+
+                    if use_responses_api:
+                        system_logger.info(f"[ReAct] Using Responses API for {model_name}")
+                        # Responses API — gpt-5-nano и др.
+                        # НЕ поддерживает: max_tokens, temperature
+                        response = await session.responses.create(
+                            model=model_name,
+                            input=api_messages,
                             timeout=240.0,
                         )
-                        message_obj = response.choices[0].message
+                        message_obj, raw_answer = _extract_response_content(response, "responses")
+                        system_logger.info(f"[ReAct] Responses API ({len(raw_answer)} chars)")
+                    else:
+                        # Chat Completions API — стандартный путь
+                        if self.agent_state.use_tool_choice:
+                            # Режим 1: пробуем forced tool_choice
+                            response = await session.chat.completions.create(
+                                model=model_name,
+                                messages=api_messages,
+                                tools=self.tools,
+                                tool_choice={
+                                    "type": "function",
+                                    "function": {"name": "execute_skill"},
+                                },
+                                temperature=self.agent_state.temperature,
+                                max_tokens=self.agent_state.max_tokens,
+                                timeout=240.0,
+                            )
+                            message_obj = response.choices[0].message
 
-                        if message_obj.tool_calls:
-                            raw_answer = str(message_obj.tool_calls[0].function.arguments)
-                            used_tool_choice = True
-                            system_logger.info("[ReAct] tool_calls получены.")
+                            if message_obj.tool_calls:
+                                raw_answer = str(message_obj.tool_calls[0].function.arguments)
+                                used_tool_choice = True
+                                system_logger.info("[ReAct] tool_calls получены.")
+                            else:
+                                # tool_choice не сработал — логируем и retry без
+                                self.agent_state.missed_tool_calls += 1
+                                system_logger.warning(f"[ReAct] tool_choice failed (missed: {self.agent_state.missed_tool_calls}). Retrying free-form...")
+                                response2 = await session.chat.completions.create(
+                                    model=model_name,
+                                    messages=api_messages,
+                                    temperature=self.agent_state.temperature,
+                                    max_tokens=self.agent_state.max_tokens,
+                                    timeout=240.0,
+                                )
+                                message_obj = response2.choices[0].message
+                                raw_answer = message_obj.content or ""
+                                system_logger.info(f"[ReAct] Free-form ({len(raw_answer)} chars)")
                         else:
-                            # tool_choice не сработал — логируем и retry без
-                            self.agent_state.missed_tool_calls += 1
-                            system_logger.warning(f"[ReAct] tool_choice failed (missed: {self.agent_state.missed_tool_calls}). Retrying free-form...")
-                            response2 = await session.chat.completions.create(
-                                model=self.agent_state.llm_model,
+                            # Режим 2: сразу free-form, без tool_choice
+                            response = await session.chat.completions.create(
+                                model=model_name,
                                 messages=api_messages,
                                 temperature=self.agent_state.temperature,
                                 max_tokens=self.agent_state.max_tokens,
                                 timeout=240.0,
                             )
-                            message_obj = response2.choices[0].message
+                            message_obj = response.choices[0].message
                             raw_answer = message_obj.content or ""
-                            system_logger.info(f"[ReAct] Free-form ({len(raw_answer)} chars)")
-                    else:
-                        # Режим 2: сразу free-form, без tool_choice
-                        response = await session.chat.completions.create(
-                            model=self.agent_state.llm_model,
-                            messages=api_messages,
-                            temperature=self.agent_state.temperature,
-                            max_tokens=self.agent_state.max_tokens,
-                            timeout=240.0,
-                        )
-                        message_obj = response.choices[0].message
-                        raw_answer = message_obj.content or ""
-                        system_logger.info(f"[ReAct] Free-form mode ({len(raw_answer)} chars)")
+                            system_logger.info(f"[ReAct] Free-form mode ({len(raw_answer)} chars)")
 
                     self.tracker.add_output_record(raw_answer)
 

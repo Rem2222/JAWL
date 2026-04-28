@@ -622,11 +622,35 @@ def api_ticks_limit():
 
 @app.route("/api/restart", methods=["POST"])
 def api_restart():
-    import subprocess
-    script = "/home/rem/JAWL/scripts/start-safe.sh"
+    import subprocess, sys
     try:
-        proc = subprocess.run(["bash", script], capture_output=True, text=True, timeout=30)
-        return jsonify({"ok": True, "stdout": proc.stdout[-200:], "stderr": proc.stderr[-200:]})
+        # 1. Убиваем старый JAWL (не Dashboard!)
+        old_pids = subprocess.run(["pgrep", "-f", "python.*src/main.py"], capture_output=True, text=True).stdout.strip()
+        if old_pids:
+            for pid in old_pids.split("\n"):
+                pid = pid.strip()
+                if pid:
+                    subprocess.run(["kill", "-9", pid], capture_output=True)
+                    print(f"[Dashboard] Killed JAWL PID {pid}")
+
+        # 2. Очистка Qdrant lock
+        lock_file = "/home/rem/JAWL/src/utils/local/data/vector_db/.lock"
+        if os.path.exists(lock_file):
+            os.remove(lock_file)
+
+        # 3. Запускаем JAWL в фоне (start_new_session чтобы пережить смерть Dashboard)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = "/home/rem/JAWL"
+        subprocess.Popen(
+            ["/home/rem/JAWL/venv/bin/python", "src/main.py"],
+            cwd="/home/rem/JAWL",
+            env=env,
+            stdout=open("/home/rem/JAWL/logs/stdout.log", "w"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        print("[Dashboard] JAWL restarted")
+        return jsonify({"ok": True, "message": "JAWL restarting..."})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1149,7 +1173,7 @@ function renderLeftPanel(d) {
   html += '<button class="provider-btn" onclick="applyTicks()" style="padding:2px 8px;font-size:11px">OK</button>';
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
-  html += '<button class="provider-btn" onclick="restartJAWL()" style="border-color:#ff4444;color:#ff4444">🔄 Restart</button>';
+  html += '<button class="provider-btn" onclick="restartJAWL(this)" style="border-color:#ff4444;color:#ff4444">🔄 Restart</button>';
   html += '</div>';
   html += '</div>';
 
@@ -1452,8 +1476,8 @@ async function applyTicks() {
   } catch(e) { console.error(e); }
 }
 
-async function restartJAWL() {
-  let btn = event.target;
+async function restartJAWL(btn) {
+  if(!btn) btn=this;
   btn.textContent = "⏳ Restarting...";
   btn.disabled = true;
   try {

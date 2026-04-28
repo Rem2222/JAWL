@@ -32,7 +32,15 @@ class LLMClient:
     def get_session(self) -> AsyncOpenAI:
         """
         Возвращает закэшированную сессию OpenAI с актуальным ключом.
+        Для OpenCode Responses API (не требует API ключа).
         """
+        # OpenCode Responses API работает БЕЗ API ключа
+        if "opencode.ai/zen/v1" in self.api_url:
+            no_key = "_NO_KEY_"
+            if no_key not in self._sessions:
+                self._sessions[no_key] = AsyncOpenAI(api_key="", base_url=self.api_url)
+            return self._sessions[no_key]
+
         api_key = self.rotator.get_next_key()
 
         if not api_key:
@@ -41,7 +49,6 @@ class LLMClient:
         # Ленивая инициализация: создаем клиента только при первом обращении к ключу
         if api_key not in self._sessions:
             self._sessions[api_key] = AsyncOpenAI(api_key=api_key, base_url=self.api_url)
-
         return self._sessions[api_key]
 
     async def close(self) -> None:
