@@ -51,3 +51,7 @@ src/l3_agent/prompt/system/FUNCTION_CALL.md
 src/l3_agent/prompt/system/INSTRUCTIONS.md
 src/l3_agent/prompt/builder.py
 .env.backup_*
+
+*.bak
+*.backup*
+.env.backup_*
