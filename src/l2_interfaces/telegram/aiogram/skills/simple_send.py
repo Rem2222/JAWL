@@ -62,8 +62,9 @@ class SimpleSend:
             system_logger.info(f"[SimpleSend] Дубликат сообщения, пропускаем. Префикс: {hashlib.sha256(text[:60].strip().lower().encode()).hexdigest()[:16]}...")
             return SkillResult.ok(f"Пропущено (дубликат, <{int(self.THROTTLE_TTL_SEC//60)} мин)")
 
-        # Хардблок: SYSTEM CORE START anywhere в сообщении
-        if "system core start" in text.strip().lower():
+        # Хардблок: SYSTEM CORE START в любом формате (пробелы или подчёркивания)
+        normalized_text = text.strip().lower()
+        if "system core start" in normalized_text or "system_core_start" in normalized_text:
             system_logger.info("[SimpleSend] Блокировка: 'SYSTEM CORE START' в тексте")
             return SkillResult.ok("Блокировано: SYSTEM CORE START уведомления запрещены")
 
