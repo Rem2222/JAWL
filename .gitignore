@@ -50,3 +50,4 @@ src/l3_agent/prompt/system/DRIVES.md
 src/l3_agent/prompt/system/FUNCTION_CALL.md
 src/l3_agent/prompt/system/INSTRUCTIONS.md
 src/l3_agent/prompt/builder.py
+.env.backup_*
