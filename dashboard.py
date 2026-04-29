@@ -156,6 +156,24 @@ def strip_ansi(text):
     return re.sub(r'\x1b\[[0-9;]*m', '', text)
 
 
+def format_uptime(seconds):
+    """Format seconds into human-readable uptime string."""
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        mins = seconds // 60
+        secs = seconds % 60
+        return f"{mins}м {secs}с" if secs else f"{mins}м"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        mins = (seconds % 3600) // 60
+        return f"{hours}ч {mins}м" if mins else f"{hours}ч"
+    else:
+        days = seconds // 86400
+        hours = (seconds % 86400) // 3600
+        return f"{days}д {hours}ч" if hours else f"{days}д"
+
+
 def parse_status_from_logs():
     lines = read_log_lines(LOG_FILE, 500, 500000)
     status = "● ONLINE"
@@ -167,6 +185,51 @@ def parse_status_from_logs():
     last_action = None
     react_actions_count = 0
     uptime = "—"
+    jawl_uptime = "—"
+
+    # Get server uptime directly from uptime command (fallback if not in logs)
+    try:
+        import subprocess
+        result = subprocess.run(["uptime"], capture_output=True, text=True, timeout=3)
+        if result.returncode == 0:
+            uptime_output = result.stdout.strip()
+            # Parse "up X days, H:M" or "up H:M, X days"
+            m = re.search(r'up (\d+) days?,\s*(\d+):(\d+)', uptime_output)
+            if m:
+                days = int(m.group(1))
+                hours = int(m.group(2))
+                mins = int(m.group(3))
+                uptime = f"{days}d {hours:02d}:{mins:02d}"
+            else:
+                # Try "up X days, Y min" format
+                m = re.search(r'up (\d+) days?,\s*(\d+) min', uptime_output)
+                if m:
+                    days = int(m.group(1))
+                    mins = int(m.group(2))
+                    uptime = f"{days}d {mins}м"
+                else:
+                    # Try short format "up X min" or "up X days"
+                    m = re.search(r'up (\d+) min', uptime_output)
+                    if m:
+                        mins = int(m.group(1))
+                        uptime = f"{mins}m"
+                    else:
+                        m = re.search(r'up (\d+) days?', uptime_output)
+                        if m:
+                            days = int(m.group(1))
+                            uptime = f"{days}d"
+    except:
+        pass
+
+    # Get JAWL uptime from PID file modification time (simple fallback)
+    try:
+        pid_file = "/tmp/jawl.pid"
+        if os.path.exists(pid_file):
+            pid_mtime = os.path.getmtime(pid_file)
+            elapsed = int(time.time() - pid_mtime)
+            jawl_uptime = format_uptime(elapsed)
+    except:
+        pass
 
     for line in lines:
         if not line.strip():
@@ -204,13 +267,27 @@ def parse_status_from_logs():
             if action_text and len(action_text) > 5:
                 last_action = action_text
 
-        # Uptime — from "up X days, H:M" in STDOUT of uptime command
+        # Uptime — from uptime command in logs (fallback if direct call failed)
         m = re.search(r'up (\d+) days?,\s*(\d+):(\d+)', lc)
         if m:
             days = int(m.group(1))
             hours = int(m.group(2))
             mins = int(m.group(3))
             uptime = f"{days}d {hours:02d}:{mins:02d}"
+        else:
+            m = re.search(r'up (\d+) days?,\s*(\d+) min', lc)
+            if m:
+                days = int(m.group(1))
+                mins = int(m.group(2))
+                uptime = f"{days}d {mins}м"
+            else:
+                m = re.search(r'up (\d+) min', lc)
+                if m:
+                    uptime = f"{m.group(1)}m"
+                else:
+                    m = re.search(r'up (\d+) days?', lc)
+                    if m:
+                        uptime = f"{m.group(1)}d"
 
     # Resolve display name from providers.json
     model_display = model
@@ -235,6 +312,7 @@ def parse_status_from_logs():
         "react_actions_count": react_actions_count,
         "last_action": last_action or "—",
         "uptime": uptime,
+        "jawl_uptime": jawl_uptime,
     }
 
 
@@ -473,20 +551,16 @@ def api_uptime():
             return jsonify({"error": "PID file not found", "uptime_seconds": 0})
         with open(pid_file) as f:
             pid = int(f.read().strip())
-        # Get process start time via ps
+        # Get elapsed seconds directly (avoids timezone issues with lstart)
         import subprocess
         result = subprocess.run(
-            ["ps", "-o", "lstart=", "-p", str(pid)],
-            capture_output=True, text=True
+            ["ps", "-o", "etimes=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=3
         )
         if result.returncode != 0 or not result.stdout.strip():
             return jsonify({"error": "Process not found", "uptime_seconds": 0})
-        start_time_str = result.stdout.strip()
-        # Parse the lstart format: "Wed Apr 29 12:00:00 2026"
-        from email.utils import parsedate_to_datetime
-        dt = parsedate_to_datetime(start_time_str)
-        elapsed = (datetime.now(timezone.utc) - dt.replace(tzinfo=timezone.utc)).total_seconds()
-        return jsonify({"uptime_seconds": int(elapsed), "start_time": start_time_str})
+        elapsed = int(result.stdout.strip())
+        return jsonify({"uptime_seconds": elapsed, "start_time": f"{elapsed}s ago"})
     except Exception as e:
         return jsonify({"error": str(e), "uptime_seconds": 0})
 
@@ -1553,7 +1627,18 @@ async function loadJawlUptime() {
         let r = await fetch('/api/uptime');
         let d = await r.json();
         if (d.error) {
-            document.getElementById('jawl-uptime').textContent = 'Jinx: ?';
+            // Fallback: try to get jawl_uptime from /api/status
+            try {
+                let r2 = await fetch('/api/status');
+                let d2 = await r2.json();
+                if (d2.jawl_uptime && d2.jawl_uptime !== '—') {
+                    document.getElementById('jawl-uptime').textContent = 'Jinx бодрствует: ' + d2.jawl_uptime;
+                } else {
+                    document.getElementById('jawl-uptime').textContent = 'Jinx: ?';
+                }
+            } catch(e2) {
+                document.getElementById('jawl-uptime').textContent = 'Jinx: ?';
+            }
             return;
         }
         let uptime = formatUptime(d.uptime_seconds);
