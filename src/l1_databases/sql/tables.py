@@ -92,3 +92,19 @@ class DriveTable(Base):
 
     # Хранит список строк (последние рефлексии агента)
     recent_reflections: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class ChatHistoryTable(Base):
+    """Таблица постоянного хранения истории сообщений чата."""
+
+    __tablename__ = "chat_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    chat_id: Mapped[int]  # ID чата (Telegram chat ID)
+    message_id: Mapped[int]  # ID сообщения в Telegram
+    sender_name: Mapped[str]  # Имя отправителя
+    text: Mapped[str]  # Текст сообщения
+    direction: Mapped[str]  # "incoming" (от пользователя) или "outgoing" (от агента)
+    created_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc)
+    )

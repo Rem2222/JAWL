@@ -1,18 +1,16 @@
 from openai import AsyncOpenAI
 
 from src.utils.logger import system_logger
-from src.l3_agent.llm.api_keys.rotator import APIKeyRotator
 
 
 class LLMClient:
     """
     Интерфейс для общения мозга агента с языковой моделью.
-    Включает автоматическую ротацию ключей и кэширование HTTP-сессий.
     """
 
-    def __init__(self, api_url: str, api_keys_rotator: APIKeyRotator):
+    def __init__(self, api_url: str, api_key: str):
         self.api_url = api_url
-        self.rotator = api_keys_rotator
+        self.api_key = api_key
 
         # Кэш сессий для переиспользования соединений и предотвращения утечек сокетов
         self._sessions: dict[str, AsyncOpenAI] = {}
@@ -34,22 +32,20 @@ class LLMClient:
         Возвращает закэшированную сессию OpenAI с актуальным ключом.
         Для OpenCode Responses API (не требует API ключа).
         """
-        # OpenCode Responses API работает БЕЗ API ключа
-        if "opencode.ai/zen/v1" in self.api_url:
+        # OpenCode Zen/Go APIs работают БЕЗ API ключа
+        if "opencode.ai/zen/" in self.api_url:
             no_key = "_NO_KEY_"
             if no_key not in self._sessions:
                 self._sessions[no_key] = AsyncOpenAI(api_key="", base_url=self.api_url)
             return self._sessions[no_key]
 
-        api_key = self.rotator.get_next_key()
+        if not self.api_key:
+            raise RuntimeError("[LLM] Нет API ключа.")
 
-        if not api_key:
-            raise RuntimeError("[LLM] Нет доступных API ключей. Лимиты исчерпаны.")
-
-        # Ленивая инициализация: создаем клиента только при первом обращении к ключу
-        if api_key not in self._sessions:
-            self._sessions[api_key] = AsyncOpenAI(api_key=api_key, base_url=self.api_url)
-        return self._sessions[api_key]
+        # Ленивая инициализация: создаем клиента только при первом обращении
+        if self.api_key not in self._sessions:
+            self._sessions[self.api_key] = AsyncOpenAI(api_key=self.api_key, base_url=self.api_url)
+        return self._sessions[self.api_key]
 
     async def close(self) -> None:
         """Корректно закрывает все активные пулы HTTP-соединений."""

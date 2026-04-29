@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
@@ -87,7 +88,10 @@ class SQLDrives:
             result = await session.execute(select(DriveTable))
             drives = result.scalars().all()
 
-            drive = next((d for d in drives if d.name.lower() == drive_name.lower()), None)
+            # Strip type prefix from drive_name if present
+            # e.g. "FUNDAMENTAL Curiosity" or "[FUNDAMENTAL] Curiosity" -> "Curiosity"
+            clean_name = re.sub(r'^(\[FUNDAMENTAL\]|FUNDAMENTAL)\s*', '', drive_name, flags=re.IGNORECASE)
+            drive = next((d for d in drives if d.name.lower() == clean_name.lower()), None)
 
             if not drive:
                 return SkillResult.fail(f"Драйв '{drive_name}' не найден.")

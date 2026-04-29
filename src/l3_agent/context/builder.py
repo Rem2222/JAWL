@@ -27,14 +27,31 @@ class ContextBuilder:
         )
 
     async def build(
-        self, event_name: str, payload: Dict[str, Any], missed_events: List[Dict[str, Any]]
+        self,
+        event_name: str,
+        payload: Dict[str, Any],
+        missed_events: List[Dict[str, Any]],
+        missed_events_limit: int = 20,
     ) -> str:
-        """Собирает итоговый контекст для агента в строгом порядке."""
+        """Собирает итоговый контекст для агента в строгом порядке.
+
+        Args:
+            event_name: Имя текущего события
+            payload: Данные текущего события
+            missed_events: Список пропущенных событий
+            missed_events_limit: Максимальное количество missed_events для включения в контекст.
+                                 Если None — включаются все.
+        """
+
+        # Ограничиваем missed_events если нужно
+        limited_missed_events = missed_events
+        if missed_events_limit is not None and len(missed_events) > missed_events_limit:
+            limited_missed_events = missed_events[-missed_events_limit:]
 
         blocks = await self.registry.gather_all(
             event_name=event_name,
             payload=payload,
-            missed_events=missed_events,
+            missed_events=limited_missed_events,
             agent_state=self.agent_state,
         )
 

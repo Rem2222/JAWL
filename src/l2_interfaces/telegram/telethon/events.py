@@ -24,10 +24,12 @@ class TelethonEvents:
         tg_client: TelethonClient,
         state: TelethonState,
         event_bus: EventBus,
+        sql_manager=None,
     ):
         self.tg_client = tg_client
         self.state = state
         self.bus = event_bus
+        self.sql = sql_manager
         self._last_state_update = 0.0
 
         # Кэш описаний чатов (чтобы не убить API Telegram'а лимитами)
@@ -203,6 +205,24 @@ class TelethonEvents:
         # Форсируем обновление стейта, чтобы агент на следующем шаге ReAct видел свой же ответ
         await self._update_state(force=True)
 
+        # === Сохраняем исходящее сообщение в постоянную историю чата ===
+        try:
+            sender_name = await TelethonMessageParser.get_sender_name(event.message)
+            msg_obj = event.message
+            media_tag = TelethonMessageParser.parse_media(msg_obj)
+            msg_text = msg_obj.text or ""
+            text = f"{media_tag} {msg_text}".strip() if media_tag else msg_text
+
+            await self._save_message_to_history(
+                chat_id=event.chat_id,
+                message_id=msg_obj.id,
+                sender_name=sender_name,
+                text=text,
+                direction="outgoing",
+            )
+        except Exception as e:
+            system_logger.error(f"[TelethonEvents] Ошибка сохранения исходящего сообщения: {e}")
+
     async def _on_private_message(self, event: events.NewMessage.Event) -> None:
 
         await self._update_state(force=True)
@@ -223,6 +243,15 @@ class TelethonEvents:
         base_text = f"{media_tag} {msg_text}".strip() if media_tag else msg_text
 
         enriched_message = f"{base_text}{fwd_info}{reply_info}".strip()
+
+        # === Сохраняем в постоянную историю чата ===
+        await self._save_message_to_history(
+            chat_id=event.chat_id,
+            message_id=msg_obj.id,
+            sender_name=sender_name,
+            text=enriched_message,
+            direction="incoming",
+        )
 
         history = await self._fetch_recent_history(chat, limit=5)
 
@@ -280,6 +309,15 @@ class TelethonEvents:
         base_text = f"{media_tag} {msg_text}".strip() if media_tag else msg_text
 
         enriched_message = f"{base_text}{fwd_info}{reply_info}".strip()
+
+        # === Сохраняем в постоянную историю чата ===
+        await self._save_message_to_history(
+            chat_id=event.chat_id,
+            message_id=msg_obj.id,
+            sender_name=sender_name,
+            text=enriched_message,
+            direction="incoming",
+        )
 
         payload = {
             "message": enriched_message,
@@ -347,6 +385,15 @@ class TelethonEvents:
         base_text = f"{media_tag} {msg_text}".strip() if media_tag else msg_text
 
         enriched_message = f"{base_text}{fwd_info}{reply_info}".strip()
+
+        # === Сохраняем в постоянную историю чата ===
+        await self._save_message_to_history(
+            chat_id=event.chat_id,
+            message_id=msg_obj.id,
+            sender_name=sender_name,
+            text=enriched_message,
+            direction="incoming",
+        )
 
         payload = {
             "message": enriched_message,
@@ -432,3 +479,29 @@ class TelethonEvents:
         except Exception as e:
             system_logger.error(f"[Telegram Telethon] Не удалось подтянуть предысторию: {e}")
             return ""
+
+    async def _save_message_to_history(
+        self,
+        chat_id: int,
+        message_id: int,
+        sender_name: str,
+        text: str,
+        direction: str,
+    ) -> None:
+        """Сохраняет сообщение в постоянную историю чата (SQLite)."""
+        if not self.sql or not self.sql.chat_history:
+            system_logger.debug("[TelethonEvents] sql.chat_history не доступен, пропуск сохранения.")
+            return
+
+        try:
+            await self.sql.chat_history.save_message(
+                chat_id=chat_id,
+                message_id=message_id,
+                sender_name=sender_name,
+                text=text,
+                direction=direction,
+            )
+            # cleanup old messages сверх лимита
+            await self.sql.chat_history.cleanup_old_messages(chat_id)
+        except Exception as e:
+            system_logger.error(f"[TelethonEvents] Ошибка сохранения в chat_history: {e}")

@@ -8,6 +8,7 @@ from src.l1_databases.sql.management.ticks import SQLTicks
 from src.l1_databases.sql.management.personality_traits import SQLPersonalityTraits
 from src.l1_databases.sql.management.mental_states import SQLMentalStates
 from src.l1_databases.sql.management.drives import SQLDrives
+from src.l1_databases.sql.management.chat_history import SQLChatHistory
 
 
 class SQLManager:
@@ -42,6 +43,8 @@ class SQLManager:
         decay_interval_sec: int = 3600,
         max_history_drives: int = 3,
         max_custom_drives: int = 5,
+        # Chat History
+        chat_history_max_messages: int = 100,
         # Время
         timezone: int = 0,
     ):
@@ -83,6 +86,12 @@ class SQLManager:
             max_history=max_history_drives,
             max_custom=max_custom_drives,
             tz_offset=timezone,
+        )
+
+        # Chat History
+        self.chat_history = SQLChatHistory(
+            db=self.db,
+            max_messages_per_chat=chat_history_max_messages,
         )
 
     async def connect(self):

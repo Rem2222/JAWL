@@ -19,6 +19,7 @@ from src.l1_databases.vector.manager import VectorManager
 from src.l3_agent.llm.client import LLMClient
 from src.l3_agent.prompt.builder import PromptBuilder
 from src.l3_agent.context.builder import ContextBuilder
+from src.l3_agent.context.truncator import ContextTruncator
 
 from src.l3_agent.skills.registry import execute_skill
 from src.l3_agent.skills.schema import AgentResponse
@@ -106,6 +107,7 @@ class ReactLoop:
         token_tracker: TokenTracker,
         tools: list,
         cooldown_sec: int = 30,
+        context_truncator: ContextTruncator = None,
     ):
         self.llm = llm_client
         self.prompt_builder = prompt_builder
@@ -116,6 +118,7 @@ class ReactLoop:
         self.tracker = token_tracker
         self.tools = tools
         self.cooldown_sec = cooldown_sec
+        self.context_truncator = context_truncator or ContextTruncator()
 
         self.current_events: list[str] = []
 
@@ -146,6 +149,17 @@ class ReactLoop:
                 context = await self.context_builder.build(
                     event_name, payload, self.current_events
                 )
+
+                # Context budget enforcement: если контекст слишком большой, урезаем missed_events
+                if self.context_truncator.should_truncate(context):
+                    # Начинаем с большого лимита и уменьшаем пока не влезем
+                    for missed_limit in [15, 10, 7, 5, 3, 1]:
+                        context = await self.context_builder.build(
+                            event_name, payload, self.current_events,
+                            missed_events_limit=missed_limit
+                        )
+                        if not self.context_truncator.should_truncate(context):
+                            break
 
                 # Stateless сборка промпта: каждый шаг мы отправляем чистую историю
                 messages = [
@@ -260,24 +274,17 @@ class ReactLoop:
                     err_code = getattr(e.body, "get", lambda x: None)("code")
 
                     if err_code == "insufficient_quota" or "billing" in str(e).lower():
-                        system_logger.error(
-                            f"[LLM] Квота исчерпана. Бан ключа {session.api_key[:8]} на 24ч"
-                        )
-                        self.llm.rotator.cooldown_key(session.api_key, 86400)
-
+                        system_logger.error(f"[LLM] Квота исчерпана: {e}")
                     else:
-                        system_logger.info(
-                            f"[LLM] Рейт-лимит. Пауза 60с для {session.api_key[:8]}"
-                        )
-                        self.llm.rotator.cooldown_key(session.api_key, 60)
+                        system_logger.info(f"[LLM] Рейт-лимит: {e}")
 
                     await asyncio.sleep(self.cooldown_sec)
                     continue
 
                 except openai.AuthenticationError:
-                    system_logger.warning("[LLM] Ключ невалиден (401). Удаляем из пула.")
-                    self.llm.rotator.ban_key(session.api_key)
-                    continue
+                    system_logger.error(f"[LLM] Ошибка авторизации (401). Проверьте API ключ.")
+                    self.agent_state.update_state(AgentStatus.ERROR)
+                    break
 
                 except Exception as e:
                     system_logger.error(f"[LLM] Ошибка API: {e}")

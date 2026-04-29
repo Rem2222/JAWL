@@ -48,7 +48,6 @@ from src.l2_interfaces.initializer import initialize_l2_interfaces
 # ==========================================
 
 from src.l3_agent.llm.client import LLMClient
-from src.l3_agent.llm.api_keys.rotator import APIKeyRotator
 
 from src.l3_agent.prompt.builder import PromptBuilder
 from src.l3_agent.context.builder import ContextBuilder
@@ -245,8 +244,9 @@ class System:
         """Сборка мозга агента."""
         system_logger.info("[System] Инициализация L3 Agent.")
 
-        rotator = APIKeyRotator(keys=llm_api_keys)
-        self.llm_client = LLMClient(api_url=llm_api_url, api_keys_rotator=rotator)
+        # Берём первый ключ из списка (один провайдер = один ключ)
+        api_key = llm_api_keys[0] if llm_api_keys else ""
+        self.llm_client = LLMClient(api_url=llm_api_url, api_key=api_key)
 
         prompt_builder = PromptBuilder(
             prompt_dir=self.root_dir / "src" / "l3_agent" / "prompt"

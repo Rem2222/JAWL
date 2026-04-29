@@ -464,6 +464,33 @@ def api_activity():
     return jsonify(get_activity())
 
 
+@app.route("/api/uptime")
+def api_uptime():
+    """Return JAWL uptime in seconds based on PID start time."""
+    try:
+        pid_file = "/tmp/jawl.pid"
+        if not os.path.exists(pid_file):
+            return jsonify({"error": "PID file not found", "uptime_seconds": 0})
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+        # Get process start time via ps
+        import subprocess
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return jsonify({"error": "Process not found", "uptime_seconds": 0})
+        start_time_str = result.stdout.strip()
+        # Parse the lstart format: "Wed Apr 29 12:00:00 2026"
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(start_time_str)
+        elapsed = (datetime.now(timezone.utc) - dt.replace(tzinfo=timezone.utc)).total_seconds()
+        return jsonify({"uptime_seconds": int(elapsed), "start_time": start_time_str})
+    except Exception as e:
+        return jsonify({"error": str(e), "uptime_seconds": 0})
+
+
 
 @app.route("/api/crypto")
 def api_crypto():
@@ -744,6 +771,19 @@ h1 .crypto-header {
 #bb-heartbeat { color: #00ccff; }
 #bb-cpu { color: #ffaa00; }
 #bb-ram { color: #ffaa00; }
+
+/* JAWL Uptime — bottom-right corner */
+#jawl-uptime {
+    position: fixed;
+    bottom: 44px;
+    right: 16px;
+    font-size: 11px;
+    color: #888;
+    z-index: 200;
+    font-family: 'Courier New', monospace;
+    text-shadow: 0 0 5px rgba(255,0,128,0.3);
+    pointer-events: none;
+}
 
 @keyframes glow {
     from { text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff; }
@@ -1143,6 +1183,8 @@ h1 .crypto-header {
   <span id="bb-ram"></span>
 </div>
 
+<div id="jawl-uptime">Jinx бодрствует: загрузка...</div>
+
 <script>
 // Full left panel refresh
 function renderLeftPanel(d) {
@@ -1354,6 +1396,10 @@ async function loadProviders() {
     PROVIDERS_DATA = d.providers || {};
     currentProviderId = d.current_provider;
     currentModelId = d.current_model;
+    // If current_provider is null, default to first available provider
+    if (!currentProviderId && Object.keys(PROVIDERS_DATA).length > 0) {
+      currentProviderId = Object.keys(PROVIDERS_DATA)[0];
+    }
     populateDropdowns();
   } catch(e) { console.error('Providers load error:', e); }
 }
@@ -1492,6 +1538,32 @@ async function restartJAWL(btn) {
 
 setInterval(loadThoughts, 3000);
 setInterval(loadLogs, 3000);
+
+// JAWL Uptime — bottom-right corner
+function formatUptime(seconds) {
+    if (seconds < 60) return seconds + " сек";
+    if (seconds < 3600) return Math.floor(seconds / 60) + " мин";
+    let h = Math.floor(seconds / 3600);
+    let m = Math.floor((seconds % 3600) / 60);
+    return h + " ч " + m + " мин";
+}
+
+async function loadJawlUptime() {
+    try {
+        let r = await fetch('/api/uptime');
+        let d = await r.json();
+        if (d.error) {
+            document.getElementById('jawl-uptime').textContent = 'Jinx: ?';
+            return;
+        }
+        let uptime = formatUptime(d.uptime_seconds);
+        document.getElementById('jawl-uptime').textContent = 'Jinx бодрствует: ' + uptime;
+    } catch(e) {
+        document.getElementById('jawl-uptime').textContent = 'Jinx: error';
+    }
+}
+loadJawlUptime();
+setInterval(loadJawlUptime, 30000);
 // Periodic polling removed — causes flicker
 
 // Activity chart
