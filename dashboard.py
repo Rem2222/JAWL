@@ -63,8 +63,8 @@ def format_timestamp(ts):
     if not ts:
         return "—"
     try:
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %H:%M UTC")
+        dt = datetime.fromtimestamp(ts)
+        return dt.strftime("%Y-%m-%d %H:%M")
     except:
         return str(ts)
 import yaml
@@ -247,8 +247,21 @@ def parse_status_from_logs():
             react_actions_count += 1
             last_action = "ReAct цикл"
 
+        # Prefer startup log naming (most reliable)
         m = re.search(r'Имя агента:\s*(\S+)', lc)
         if m: agent_name = m.group(1)
+        # JSON heartbeat as fallback (activity logs use "JAWL" as placeholder)
+        if agent_name == "JAWL":
+            m2 = re.search(r'"agent_name":\s*"([^"]+)"', lc)
+            if m2: agent_name = m2.group(1)
+        # Config file as final fallback
+        if agent_name == "JAWL":
+            try:
+                import yaml
+                cfg = yaml.safe_load(open('config/settings.yaml'))
+                agent_name = cfg.get('agent_name', 'Jinx')
+            except:
+                pass
 
         m = re.search(r'\[Agent Action\]\s*(.+)', lc)
         if m:
@@ -728,7 +741,7 @@ TEMPLATE = '''
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JAWL Dashboard</title>
+<title>{{ agent_name }} Dashboard</title>
 <style>
 /* JINX STYLING — Neon Pink/Magenta Theme */
 :root {
@@ -1167,7 +1180,7 @@ h1 .crypto-header {
 </head>
 <body>
 <h1>
-  <span>⚡ JAWL Dashboard — {{ agent_name }}</span>
+  <span>⚡ {{ agent_name }} Dashboard — {{ agent_name }}</span>
   <span id="cryptoBox" class="crypto-header"></span>
 </h1>
 
