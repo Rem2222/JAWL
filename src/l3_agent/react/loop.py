@@ -1,6 +1,6 @@
 import openai
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Literal
 from pydantic import ValidationError
 
 import base64
@@ -25,17 +25,21 @@ from src.l3_agent.skills.registry import execute_skill
 from src.l3_agent.skills.schema import AgentResponse
 
 
-# Models that require OpenAI Responses API format (not Chat Completions)
-# These models use session.responses.create(input=...) instead of session.chat.completions.create(messages=...)
-_RESPONSES_API_MODELS = {
-    "gpt-5-nano",
-    "ling-2.6-flash-free",
-}
 
-
-def _uses_responses_api(model_name: str) -> bool:
-    """Check if a model requires Responses API format."""
-    return model_name in _RESPONSES_API_MODELS
+def _resolve_model_provider(llm_client: LLMClient, model_id: str) -> tuple[str, str, str]:
+    """Find (provider_id, model_id, api_format) for a given model_id.
+    Returns (provider_id, model_id, api_format).
+    api_format is per-model if overridden, else per-provider.
+    """
+    config = llm_client._config
+    for provider_id, provider in config.get("providers", {}).items():
+        for model in provider.get("models", []):
+            if model["id"] == model_id:
+                # Per-model api override
+                api_format = model.get("api", provider.get("api", "openai-completions"))
+                return provider_id, model_id, api_format
+    # Fallback to defaults
+    return llm_client.default_provider, model_id, "openai-completions"
 
 
 def _extract_response_content(response, api_format: str) -> tuple[Any, str]:
@@ -176,7 +180,7 @@ class ReactLoop:
 
                 system_logger.info(f"[ReAct] Шаг {step}/{self.agent_state.max_react_steps}.")
                 try:
-                    session = self.llm.get_session()
+                    session = self.llm.get_session(provider_id)
                     timeout_retries = 0
                     raw_answer = ""
                     used_tool_choice = False
@@ -188,24 +192,22 @@ class ReactLoop:
                     except FileNotFoundError:
                         self.agent_state.use_tool_choice = True
 
-                    # Определяем формат API (Responses vs Chat Completions)
+                    # Определяем формат API из models.json (openai-responses | openai-completions | anthropic-messages)
                     model_name = self.agent_state.llm_model
-                    use_responses_api = _uses_responses_api(model_name)
-                    api_format = "responses" if use_responses_api else "chat"
+                    provider_id, model_id, api_format = _resolve_model_provider(self.llm, model_name)
 
-                    if use_responses_api:
+                    if api_format == "openai-responses":
                         system_logger.info(f"[ReAct] Using Responses API for {model_name}")
-                        # Responses API — gpt-5-nano и др.
-                        # НЕ поддерживает: max_tokens, temperature
+                        # Responses API — responses.create()
+                        # НЕ поддерживает: max_tokens, temperature, timeout
                         response = await session.responses.create(
                             model=model_name,
                             input=api_messages,
-                            timeout=240.0,
                         )
                         message_obj, raw_answer = _extract_response_content(response, "responses")
                         system_logger.info(f"[ReAct] Responses API ({len(raw_answer)} chars)")
                     else:
-                        # Chat Completions API — стандартный путь
+                        # Chat Completions API (openai-completions) или anthropic-messages
                         if self.agent_state.use_tool_choice:
                             # Режим 1: пробуем forced tool_choice
                             response = await session.chat.completions.create(

@@ -240,13 +240,12 @@ class System:
         components = initialize_l2_interfaces(self, env_vars)
         self._lifecycle_components.extend(components)
 
-    def setup_l3_agent(self, llm_api_url: str, llm_api_keys: list[str]):
+    def setup_l3_agent(self):
         """Сборка мозга агента."""
         system_logger.info("[System] Инициализация L3 Agent.")
 
-        # Берём первый ключ из списка (один провайдер = один ключ)
-        api_key = llm_api_keys[0] if llm_api_keys else ""
-        self.llm_client = LLMClient(api_url=llm_api_url, api_key=api_key)
+        models_config = self.root_dir / "config" / "models.json"
+        self.llm_client = LLMClient(config_path=str(models_config))
 
         prompt_builder = PromptBuilder(
             prompt_dir=self.root_dir / "src" / "l3_agent" / "prompt"
@@ -349,8 +348,6 @@ class System:
 
     async def run(
         self,
-        llm_api_url: str,
-        llm_api_keys: list[str],
         telethon_api_id: Optional[str] = None,
         telethon_api_hash: Optional[str] = None,
         aiogram_bot_token: Optional[str] = None,
@@ -380,7 +377,7 @@ class System:
             )
 
             # L3 AGENT
-            self.setup_l3_agent(llm_api_url=llm_api_url, llm_api_keys=llm_api_keys)
+            self.setup_l3_agent()
 
             # Запуск компонентов
             started_components = []
@@ -505,24 +502,13 @@ async def main() -> int:
         interfaces_config=interfaces_config,
     )
     try:
-        # Пробуем взять .env токены/API для интерфейсов
         # Telethon
         TELETHON_API_ID = os.getenv("TELETHON_API_ID", None)
         TELETHON_API_HASH = os.getenv("TELETHON_API_HASH", None)
         # Aiogram
         AIOGRAM_BOT_TOKEN = os.getenv("AIOGRAM_BOT_TOKEN", None)
 
-        # Динамически собираем все ключи, которые начинаются с LLM_API_KEY_
-        LLM_API_URL = os.getenv("LLM_API_URL", None)
-        LLM_API_KEYS = [
-            v
-            for k, v in sorted(os.environ.items())
-            if k.startswith("LLM_API_KEY_") and v.strip()
-        ]
-
         exit_code = await system.run(
-            llm_api_url=LLM_API_URL,
-            llm_api_keys=LLM_API_KEYS,
             # Telethon
             telethon_api_id=TELETHON_API_ID,
             telethon_api_hash=TELETHON_API_HASH,

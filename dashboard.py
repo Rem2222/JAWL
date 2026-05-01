@@ -75,34 +75,23 @@ SETTINGS_PATH = "/home/rem/JAWL/config/settings.yaml"
 ENV_PATH = "/home/rem/JAWL/.env"
 MAIN_SCRIPT = "/home/rem/JAWL/src/main.py"
 PID_FILE = "/tmp/jawl.pid"
+MODELS_JSON = "/home/rem/JAWL/config/models.json"
+PROVIDERS_JSON = "/home/rem/JAWL/config/providers.json"  # legacy compat
 
 import os
 
-PROVIDERS_JSON = "/home/rem/JAWL/config/providers.json"
-
-def load_providers():
+def load_models():
     try:
-        with open(PROVIDERS_JSON) as f:
-            data = json.load(f)
-        return data
+        with open(MODELS_JSON) as f:
+            return json.load(f)
     except Exception as e:
-        print(f"[Dashboard] Failed to load providers.json: {e}")
-        return {"default_model": "glm-5", "providers": {}}
+        print(f"[Dashboard] Failed to load models.json: {e}")
+        return {"default_provider": "", "default_model": "", "providers": {}}
 
 def get_current_provider_model():
-    """Return (provider_id, model_id) for currently active config."""
-    try:
-        with open(SETTINGS_PATH) as f:
-            cfg = yaml.safe_load(f)
-        current_model = cfg.get("llm", {}).get("model_name", "")
-        providers = load_providers().get("providers", {})
-        for pid, pdata in providers.items():
-            for mid, mdata in pdata.get("models", {}).items():
-                if mid == current_model:
-                    return pid, mid
-        return None, current_model
-    except:
-        return None, None
+    """Return (provider_id, model_id) from models.json."""
+    cfg = load_models()
+    return cfg.get("default_provider", ""), cfg.get("default_model", "")
 
 
 app = Flask(__name__)
@@ -289,14 +278,14 @@ def parse_status_from_logs():
                     if m:
                         uptime = f"{m.group(1)}d"
 
-    # Resolve display name from providers.json
+    # Resolve display name from models.json
     model_display = model
     try:
-        prov_cfg = load_providers()
-        for pid, pdata in prov_cfg.get("providers", {}).items():
-            for mid, mdata in pdata.get("models", {}).items():
-                if mid == model:
-                    model_display = pdata.get("name", pid) + ' / ' + mdata.get("name", mid)
+        mcfg = load_models()
+        for pid, pdata in mcfg.get("providers", {}).items():
+            for m in pdata.get("models", []):
+                if m["id"] == model:
+                    model_display = pdata.get("name", pid) + ' / ' + m.get("name", m["id"])
                     break
     except:
         pass
@@ -578,88 +567,63 @@ def api_knowledge():
 
 @app.route("/api/providers")
 def api_providers():
-    data = load_providers()
+    cfg = load_models()
     current_provider, current_model = get_current_provider_model()
+    # Flatten for dashboard compatibility
+    providers_flat = {}
+    for pid, pdata in cfg.get("providers", {}).items():
+        models_dict = {}
+        for m in pdata.get("models", []):
+            models_dict[m["id"]] = {"name": m.get("name", m["id"]), "contextWindow": m.get("contextWindow")}
+        providers_flat[pid] = {
+            "name": pdata.get("name", pid),
+            "models": models_dict,
+            "api": pdata.get("api", "openai-completions")
+        }
     return jsonify({
         "current_provider": current_provider,
         "current_model": current_model,
-        "default_model": data.get("default_model", "glm-5"),
-        "providers": data.get("providers", {})
+        "providers": providers_flat
     })
 
 
 @app.route("/api/switch", methods=["POST"])
 def api_switch():
+    """Switch provider/model by updating models.json default_provider/default_model."""
     data = request.get_json()
     model_id = data.get("model")
+    if not model_id:
+        return jsonify({"error": "model is required"}), 400
 
-    # Load providers.json
-    with open(PROVIDERS_JSON) as f:
+    # Load models.json
+    with open(MODELS_JSON) as f:
         cfg = json.load(f)
 
     # Find which provider has this model
     provider_id = None
-    provider_cfg = None
-    model_cfg = None
-    for pid, pdata in cfg["providers"].items():
-        if model_id in pdata.get("models", {}):
-            provider_id = pid
-            provider_cfg = pdata
-            model_cfg = pdata["models"][model_id]
+    for pid, pdata in cfg.get("providers", {}).items():
+        for m in pdata.get("models", []):
+            if m["id"] == model_id:
+                provider_id = pid
+                break
+        if provider_id:
             break
 
-    if not provider_cfg:
+    if not provider_id:
         return jsonify({"error": f"Unknown model: {model_id}"}), 400
 
-    # Read API key from env var
-    env_var = provider_cfg.get("api_key_env", "LLM_API_KEY_1")
-    api_key = os.environ.get(env_var, "")
-    if not api_key:
-        # Try reading from .env
-        try:
-            with open(ENV_PATH) as f:
-                for ln in f:
-                    if ln.startswith(env_var + "="):
-                        api_key = ln.split("=", 1)[1].strip().strip('"')
-                        break
-        except:
-            pass
+    # Update models.json
+    cfg["default_provider"] = provider_id
+    cfg["default_model"] = model_id
+    with open(MODELS_JSON, "w") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
-    # Update settings.yaml
+    # Also update settings.yaml for backward compat
     with open(SETTINGS_PATH) as f:
         settings = yaml.safe_load(f)
     settings["llm"]["model_name"] = model_id
     with open(SETTINGS_PATH, "w") as f:
         yaml.safe_dump(settings, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-    # Update .env with url + key
-    out = []
-    has_u = has_k = False
-    try:
-        with open(ENV_PATH) as f:
-            for ln in f:
-                if ln.startswith("LLM_API_URL="):
-                    out.append('LLM_API_URL="' + provider_cfg["url"] + '"\n')
-                    has_u = True
-                elif ln.startswith("LLM_API_KEY_1="):
-                    out.append('LLM_API_KEY_1="' + api_key + '"\n')
-                    has_k = True
-                else:
-                    out.append(ln)
-    except:
-        pass
-    if not has_u:
-        out.append('LLM_API_URL="' + provider_cfg["url"] + '"\n')
-    if not has_k:
-        out.append('LLM_API_KEY_1="' + api_key + '"\n')
-    with open(ENV_PATH, "w") as f:
-        f.writelines(out)
-
-    # Save current selection to providers.json
-    cfg["current_provider"] = provider_id
-    cfg["current_model"] = model_id
-    with open(PROVIDERS_JSON, "w") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
 
     # Restart JAWL
     import subprocess
@@ -680,7 +644,7 @@ def api_switch():
     with open(PID_FILE, "w") as f:
         f.write(str(proc.pid))
 
-    return jsonify({"ok": True, "pid": proc.pid, "provider": provider_id, "model": model_id, "model_name": model_cfg.get("name", model_id)})
+    return jsonify({"ok": True, "pid": proc.pid, "provider": provider_id, "model": model_id})
 
 
 @app.route("/api/tool_choice", methods=["GET", "POST"])
@@ -846,18 +810,7 @@ h1 .crypto-header {
 #bb-cpu { color: #ffaa00; }
 #bb-ram { color: #ffaa00; }
 
-/* JAWL Uptime — bottom-right corner */
-#jawl-uptime {
-    position: fixed;
-    bottom: 44px;
-    right: 16px;
-    font-size: 11px;
-    color: #888;
-    z-index: 200;
-    font-family: 'Courier New', monospace;
-    text-shadow: 0 0 5px rgba(255,0,128,0.3);
-    pointer-events: none;
-}
+/* JAWL Uptime moved to bottom bar (bb-jawl-uptime) */
 
 @keyframes glow {
     from { text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff; }
@@ -1255,9 +1208,9 @@ h1 .crypto-header {
   <span id="bb-cpu"></span>
   <span class="bb-sep">|</span>
   <span id="bb-ram"></span>
+  <span class="bb-sep">|</span>
+  <span id="bb-jawl-uptime" style="color:#ff69b4;"></span>
 </div>
-
-<div id="jawl-uptime">Jinx бодрствует: загрузка...</div>
 
 <script>
 // Full left panel refresh
@@ -1351,6 +1304,7 @@ function renderLeftPanel(d) {
   document.getElementById('bb-heartbeat').textContent = '♥ ' + d.heartbeat;
   document.getElementById('bb-cpu').textContent = 'CPU ' + d.resources.cpu + '%';
   document.getElementById('bb-ram').textContent = 'RAM ' + d.resources.ram_pct + '%';
+  document.getElementById('bb-jawl-uptime').textContent = d.jawl_uptime && d.jawl_uptime !== '—' ? 'Jinx: ♥ ' + d.jawl_uptime : '';
 
   document.getElementById('leftPanel').innerHTML = html;
   // Redraw chart after DOM update
@@ -1632,19 +1586,19 @@ async function loadJawlUptime() {
                 let r2 = await fetch('/api/status');
                 let d2 = await r2.json();
                 if (d2.jawl_uptime && d2.jawl_uptime !== '—') {
-                    document.getElementById('jawl-uptime').textContent = 'Jinx бодрствует: ' + d2.jawl_uptime;
+                    document.getElementById('bb-jawl-uptime').textContent = 'Jinx: ♥ ' + d2.jawl_uptime;
                 } else {
-                    document.getElementById('jawl-uptime').textContent = 'Jinx: ?';
+                    document.getElementById('bb-jawl-uptime').textContent = 'Jinx: ♥ ' + d2.jawl_uptime;
                 }
             } catch(e2) {
-                document.getElementById('jawl-uptime').textContent = 'Jinx: ?';
+                document.getElementById('bb-jawl-uptime').textContent = 'Jinx: ♥ ?';
             }
             return;
         }
         let uptime = formatUptime(d.uptime_seconds);
-        document.getElementById('jawl-uptime').textContent = 'Jinx бодрствует: ' + uptime;
+        document.getElementById('bb-jawl-uptime').textContent = 'Jinx: ♥ ' + uptime;
     } catch(e) {
-        document.getElementById('jawl-uptime').textContent = 'Jinx: error';
+        document.getElementById('bb-jawl-uptime').textContent = '';
     }
 }
 loadJawlUptime();
