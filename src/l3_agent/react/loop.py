@@ -180,6 +180,10 @@ class ReactLoop:
 
                 system_logger.info(f"[ReAct] Шаг {step}/{self.agent_state.max_react_steps}.")
                 try:
+                    # Определяем формат API из models.json (openai-responses | openai-completions | anthropic-messages)
+                    model_name = self.agent_state.llm_model
+                    provider_id, model_id, api_format = _resolve_model_provider(self.llm, model_name)
+
                     session = self.llm.get_session(provider_id)
                     timeout_retries = 0
                     raw_answer = ""
@@ -191,10 +195,6 @@ class ReactLoop:
                             self.agent_state.use_tool_choice = f.read().strip() != "0"
                     except FileNotFoundError:
                         self.agent_state.use_tool_choice = True
-
-                    # Определяем формат API из models.json (openai-responses | openai-completions | anthropic-messages)
-                    model_name = self.agent_state.llm_model
-                    provider_id, model_id, api_format = _resolve_model_provider(self.llm, model_name)
 
                     if api_format == "openai-responses":
                         system_logger.info(f"[ReAct] Using Responses API for {model_name}")
