@@ -91,6 +91,9 @@ def _extract_response_content(response, api_format: str) -> tuple[Any, str]:
         # Chat API structure: response.choices[0].message
         message_obj = response.choices[0].message
         raw_answer = message_obj.content or ""
+        # Reasoning models (minimax-m2.5-free etc.) put response in .reasoning, not .content
+        if not raw_answer and hasattr(message_obj, 'reasoning') and message_obj.reasoning:
+            raw_answer = message_obj.reasoning
         return message_obj, raw_answer
 
 
