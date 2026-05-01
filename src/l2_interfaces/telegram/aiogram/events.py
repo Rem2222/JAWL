@@ -57,9 +57,10 @@ class AiogramEvents:
         self.dp.message.register(self._cmd_help, F.text == "/help")
 
         # Регистрация callback-обработчиков для inline-кнопок
+        # Важно: более специфичные фильтры регистрируются ДО общих
+        self.dp.callback_query.register(self._cb_back, F.data == "prov:back")
         self.dp.callback_query.register(self._cb_model, F.data.startswith("model:"))
         self.dp.callback_query.register(self._cb_provider, F.data.startswith("prov:"))
-        self.dp.callback_query.register(self._cb_back, F.data == "prov:back")
 
         # Регистрируем меню команд в Telegram
         try:
