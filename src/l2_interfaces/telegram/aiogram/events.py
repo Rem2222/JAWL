@@ -283,6 +283,7 @@ class AiogramEvents:
                         tg_status += f"\n📬 В очереди: {tg_queue} сообщений"
                 else:
                     tg_queue = 0
+                    tg_status += "\n📬 В очереди: 0"
             except Exception as e:
                 system_logger.warning(f"[Telegram] getUpdates failed: {e}")
                 tg_status += f"\n⚠️ getUpdates: {e}"
