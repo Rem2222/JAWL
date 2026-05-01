@@ -34,6 +34,9 @@ class AgentState(BaseModel):
 
     start_time: float = Field(default_factory=time.time)
 
+    # ID чата последнего входящего сообщения (для ответа «откуда пришло — туда и отвечай»)
+    incoming_chat_id: int = 386235337  # fallback: ЛС Романа
+
     # Краткосрочная память для ассоциативного RAG и инжекта мультимодальности
     last_thoughts: str = ""
     last_action_args: list[str] = Field(default_factory=list)

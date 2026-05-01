@@ -5,11 +5,16 @@ from src.l2_interfaces.telegram.aiogram.client import AiogramClient
 from src.l3_agent.skills.registry import SkillResult, skill
 from src.utils.logger import system_logger
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from src.l0_state.agent.state import AgentState
+
 
 class SimpleSend:
     """
     Ультра-простая обёртка для отправки сообщений.
-    chat_id захардкожен, модель передаёт только текст.
+    Отвечает туда, откуда пришло последнее сообщение (incoming_chat_id).
+    Fallback — ЛС Романа (386235337) для heartbeat и spontaneous.
     """
 
     # Хэши отправленных сообщений: {hash: timestamp}
@@ -19,9 +24,11 @@ class SimpleSend:
     # TTL в секундах
     THROTTLE_TTL_SEC: float = 600  # 10 минут
 
-    def __init__(self, aiogram_client: AiogramClient):
+    FALLBACK_CHAT_ID: int = 386235337  # ЛС Романа
+
+    def __init__(self, aiogram_client: AiogramClient, agent_state: "AgentState"):
         self.client = aiogram_client
-        self.default_chat_id = 386235337
+        self.agent_state = agent_state
 
     def _content_hash(self, text: str) -> str:
         """Хэш без учёта регистра и пробелов."""
@@ -51,7 +58,8 @@ class SimpleSend:
     @skill()
     async def send_message(self, text: str) -> SkillResult:
         """
-        Отправляет текстовое сообщение Роману.
+        Отправляет текстовое сообщение.
+        Отвечает в чат, откуда пришло последнее сообщение.
         Параметры: text (строка) - текст сообщения.
         """
         if not text or not text.strip():
@@ -68,13 +76,15 @@ class SimpleSend:
             system_logger.info("[SimpleSend] Блокировка: 'SYSTEM CORE START' в тексте")
             return SkillResult.ok("Блокировано: SYSTEM CORE START уведомления запрещены")
 
+        chat_id = self.agent_state.incoming_chat_id
+
         try:
             bot = self.client.bot()
             msg = await bot.send_message(
-                chat_id=self.default_chat_id,
+                chat_id=chat_id,
                 text=text.strip()
             )
-            system_logger.info(f"[SimpleSend] Отправлено сообщение {msg.message_id} в чат {self.default_chat_id}")
+            system_logger.info(f"[SimpleSend] Отправлено сообщение {msg.message_id} в чат {chat_id}")
             return SkillResult.ok(f"Отправлено! ID: {msg.message_id}")
 
         except Exception as e:

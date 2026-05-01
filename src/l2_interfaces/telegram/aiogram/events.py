@@ -148,6 +148,7 @@ class AiogramEvents:
         """Триггер на сообщения в ЛС бота."""
 
         await self._update_state(message)
+        self.agent_state.incoming_chat_id = message.chat.id
 
         sender_name = message.from_user.first_name if message.from_user else "Unknown"
 
@@ -163,6 +164,7 @@ class AiogramEvents:
         """Триггер на сообщения в группах."""
 
         await self._update_state(message)
+        self.agent_state.incoming_chat_id = message.chat.id
 
         bot = self.client.bot()
         me = await bot.get_me()

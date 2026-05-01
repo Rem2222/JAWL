@@ -35,7 +35,7 @@ def setup_aiogram(system: "System", bot_token: str | None) -> List[Any]:
     register_instance(AiogramChats(client, system.aiogram_state))
     register_instance(AiogramMessages(client))
     register_instance(AiogramModeration(client))
-    register_instance(SimpleSend(client))
+    register_instance(SimpleSend(client, system.agent_state))
 
     # Регистрация провайдеров контекста (отдают Markdown блоки в промпт агента)
     system.context_registry.register_provider(
