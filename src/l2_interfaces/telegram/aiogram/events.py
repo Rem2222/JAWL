@@ -4,7 +4,10 @@ import os
 from pathlib import Path
 
 from aiogram import Dispatcher, F
-from aiogram.types import Message, BotCommand, BotCommandScopeAllPrivateChats
+from aiogram.types import (
+    Message, BotCommand, BotCommandScopeAllPrivateChats,
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery,
+)
 
 from src.utils.event.bus import EventBus
 from src.utils.event.registry import Events
@@ -52,6 +55,11 @@ class AiogramEvents:
         self.dp.message.register(self._cmd_models, F.text == "/models")
         self.dp.message.register(self._cmd_stop, F.text == "/stop")
         self.dp.message.register(self._cmd_help, F.text == "/help")
+
+        # Регистрация callback-обработчиков для inline-кнопок
+        self.dp.callback_query.register(self._cb_model, F.data.startswith("model:"))
+        self.dp.callback_query.register(self._cb_provider, F.data.startswith("prov:"))
+        self.dp.callback_query.register(self._cb_back, F.data == "prov:back")
 
         # Регистрируем меню команд в Telegram
         try:
@@ -217,18 +225,23 @@ class AiogramEvents:
     # COMMAND HANDLERS
     # ===========================================
 
+    def _load_models_config(self) -> dict | None:
+        try:
+            with open(self._config_path) as f:
+                return json.load(f)
+        except Exception:
+            return None
+
     async def _cmd_help(self, message: Message):
         """Показать список команд."""
         lines = [
             "⚔️ *Jinx Commands:*",
             "",
             "/status — текущее состояние",
-            "/models — список доступных моделей",
+            "/models — сменить модель",
             "/restart — перезагрузка",
             "/stop — остановка",
             "/help — эта справка",
-            "",
-            "Модель можно сменить через Dashboard.",
         ]
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
@@ -255,30 +268,162 @@ class AiogramEvents:
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
     async def _cmd_models(self, message: Message):
-        """Показать доступные модели."""
-        try:
-            with open(self._config_path) as f:
-                config = json.load(f)
-        except Exception:
+        """Показать inline-кнопки для выбора провайдера."""
+        config = self._load_models_config()
+        if not config:
             await message.reply("❌ Не удалось прочитать config/models.json")
             return
 
-        current_model = self.agent_state.llm_model
-        lines = ["📋 *Available Models:*", ""]
+        current_provider = config.get("default_provider", "")
+        current_model = config.get("default_model", "")
 
+        buttons = []
         for pname, pdata in config.get("providers", {}).items():
             models = pdata.get("models", [])
             if not models:
                 continue
-            lines.append(f"*{pname}:*")
-            for m in models:
-                mid = m.get("id", "?")
-                marker = " ◀️" if mid == current_model else ""
-                lines.append(f"  `{mid}{marker}`")
-            lines.append("")
+            model_count = len(models)
+            active = " ◀️" if pname == current_provider else ""
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"{pname}{active} ({model_count})",
+                    callback_data=f"prov:{pname}",
+                )
+            ])
 
-        lines.append("Сменить модель: Dashboard")
-        await message.reply("\n".join(lines), parse_mode="Markdown")
+        kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await message.reply(
+            f"📋 *Выберите провайдер:*\nТекущая: `{current_provider}` / `{current_model}`",
+            parse_mode="Markdown",
+            reply_markup=kb,
+        )
+
+    async def _cb_provider(self, callback: CallbackQuery):
+        """Показать модели выбранного провайдера."""
+        provider_id = callback.data.split(":", 1)[1]
+        config = self._load_models_config()
+        if not config:
+            await callback.answer("❌ Ошибка конфигурации")
+            return
+
+        pdata = config.get("providers", {}).get(provider_id)
+        if not pdata:
+            await callback.answer("❌ Провайдер не найден")
+            return
+
+        current_model = config.get("default_model", "")
+        current_provider = config.get("default_provider", "")
+
+        buttons = []
+        for m in pdata.get("models", []):
+            mid = m.get("id", "?")
+            mname = m.get("name", mid)
+            active = " ✅" if provider_id == current_provider and mid == current_model else ""
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"{mname}{active}",
+                    callback_data=f"model:{provider_id}:{mid}",
+                )
+            ])
+
+        # Back button
+        buttons.append([
+            InlineKeyboardButton(text="← Назад", callback_data="prov:back")
+        ])
+
+        kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+        try:
+            await callback.message.edit_text(
+                f"📋 *{provider_id} — модели:*",
+                parse_mode="Markdown",
+                reply_markup=kb,
+            )
+        except Exception:
+            await callback.answer("Ок")
+
+    async def _cb_model(self, callback: CallbackQuery):
+        """Переключить модель."""
+        parts = callback.data.split(":")
+        if len(parts) < 3:
+            await callback.answer("❌ Неверный формат")
+            return
+
+        provider_id = parts[1]
+        model_id = parts[2]
+
+        config = self._load_models_config()
+        if not config:
+            await callback.answer("❌ Ошибка конфигурации")
+            return
+
+        # Validate
+        pdata = config.get("providers", {}).get(provider_id)
+        if not pdata:
+            await callback.answer("❌ Провайдер не найден")
+            return
+
+        model_found = any(m["id"] == model_id for m in pdata.get("models", []))
+        if not model_found:
+            await callback.answer("❌ Модель не найдена")
+            return
+
+        # Update config
+        config["default_provider"] = provider_id
+        config["default_model"] = model_id
+
+        try:
+            with open(self._config_path, "w") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            await callback.answer(f"❌ Ошибка записи: {e}")
+            return
+
+        model_name = next(
+            (m.get("name", model_id) for m in pdata["models"] if m["id"] == model_id),
+            model_id,
+        )
+
+        await callback.message.edit_text(
+            f"✅ Модель: *{model_name}*\n"
+            f"Провайдер: `{provider_id}`\n\n"
+            f"🔄 Перезагрузка...",
+            parse_mode="Markdown",
+        )
+        system_logger.info(f"[Telegram] Модель переключена: {provider_id}/{model_id} (от пользователя)")
+        await self.bus.publish(Events.SYSTEM_REBOOT_REQUESTED)
+
+    async def _cb_back(self, callback: CallbackQuery):
+        """Вернуться к списку провайдеров."""
+        config = self._load_models_config()
+        if not config:
+            await callback.answer("❌ Ошибка")
+            return
+
+        current_provider = config.get("default_provider", "")
+        current_model = config.get("default_model", "")
+
+        buttons = []
+        for pname, pdata in config.get("providers", {}).items():
+            models = pdata.get("models", [])
+            if not models:
+                continue
+            active = " ◀️" if pname == current_provider else ""
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"{pname}{active} ({len(models)})",
+                    callback_data=f"prov:{pname}",
+                )
+            ])
+
+        kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+        try:
+            await callback.message.edit_text(
+                f"📋 *Выберите провайдер:*\nТекущая: `{current_provider}` / `{current_model}`",
+                parse_mode="Markdown",
+                reply_markup=kb,
+            )
+        except Exception:
+            await callback.answer("Ок")
 
     async def _cmd_restart(self, message: Message):
         """Перезагрузить Jinx."""
