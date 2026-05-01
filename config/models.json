@@ -1,6 +1,6 @@
 {
-  "default_provider": "opencode-zen",
-  "default_model": "gpt-5-nano",
+  "default_provider": "opencode-zen-chat",
+  "default_model": "minimax-m2.5-free",
   "providers": {
     "minimax": {
       "baseUrl": "https://api.minimax.io/anthropic/v1",
@@ -13,7 +13,9 @@
           "contextWindow": 200000,
           "maxTokens": 131000,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "minimax-m2.5",
@@ -21,7 +23,9 @@
           "contextWindow": 200000,
           "maxTokens": 131000,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         }
       ]
     },
@@ -36,7 +40,9 @@
           "contextWindow": 204800,
           "maxTokens": 131072,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "glm-5.1",
@@ -44,7 +50,9 @@
           "contextWindow": 204800,
           "maxTokens": 131072,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "glm-4.7",
@@ -52,7 +60,9 @@
           "contextWindow": 204800,
           "maxTokens": 131072,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         }
       ]
     },
@@ -67,7 +77,10 @@
           "contextWindow": 262144,
           "maxTokens": 32000,
           "reasoning": true,
-          "input": ["text", "image"]
+          "input": [
+            "text",
+            "image"
+          ]
         },
         {
           "id": "mimo-v2-pro",
@@ -75,7 +88,9 @@
           "contextWindow": 1048576,
           "maxTokens": 32000,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "mimo-v2.5",
@@ -83,7 +98,9 @@
           "contextWindow": 262144,
           "maxTokens": 32000,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "mimo-v2.5-pro",
@@ -91,7 +108,9 @@
           "contextWindow": 1048576,
           "maxTokens": 32000,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         }
       ]
     },
@@ -106,12 +125,14 @@
           "contextWindow": 1000000,
           "maxTokens": 80000,
           "reasoning": false,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         }
       ]
     },
     "opencode-zen-chat": {
-      "baseUrl": "https://opencode.ai/zen/v1/chat/completions",
+      "baseUrl": "https://opencode.ai/zen/v1",
       "apiKey": null,
       "api": "openai-completions",
       "models": [
@@ -121,7 +142,9 @@
           "contextWindow": 1000000,
           "maxTokens": 80000,
           "reasoning": false,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "nemotron-3-super-free",
@@ -129,7 +152,9 @@
           "contextWindow": 1000000,
           "maxTokens": 80000,
           "reasoning": false,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         },
         {
           "id": "minimax-m2.5-free",
@@ -137,7 +162,9 @@
           "contextWindow": 1000000,
           "maxTokens": 80000,
           "reasoning": true,
-          "input": ["text"]
+          "input": [
+            "text"
+          ]
         }
       ]
     }
