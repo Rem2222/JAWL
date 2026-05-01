@@ -247,7 +247,7 @@ class AiogramEvents:
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
     async def _cmd_status(self, message: Message):
-        """Показать статус агента."""
+        """Показать статус агента + проверка Telegram."""
         s = self.agent_state
         status_emoji = {
             AgentStatus.IDLE: "💤",
@@ -255,6 +255,40 @@ class AiogramEvents:
             AgentStatus.ACTING: "⚡",
             AgentStatus.ERROR: "🔴",
         }.get(s.state, "❓")
+
+        # Проверка Telegram polling
+        tg_status = "❓ неизвестно"
+        tg_queue = 0
+        try:
+            bot = self.client.bot()
+            # Проверяем polling через get_webhook_info (если webhook установлен — polling не работает)
+            wh_info = await bot.get_webhook_info()
+            if wh_info.url:
+                tg_status = "⚠️ webhook установлен (polling не работает)"
+            elif self._polling_task and not self._polling_task.done():
+                tg_status = "🟢 polling жив"
+            else:
+                tg_status = "🔴 polling мёртв"
+
+            # Проверяем unconsumed messages (getUpdates с offset=0 не подтверждает)
+            try:
+                updates = await bot.get_updates(offset=-1, limit=1, timeout=0)
+                last_update = updates[0] if updates else None
+                if last_update:
+                    # Считаем сколько времени сообщение висит
+                    # getUpdates с offset=-1 возвращает последнее неподтверждённое
+                    all_pending = await bot.get_updates(offset=0, limit=100, timeout=0)
+                    tg_queue = len(all_pending)
+                    if tg_queue > 0:
+                        tg_status += f"\n📬 В очереди: {tg_queue} сообщений"
+                else:
+                    tg_queue = 0
+            except Exception as e:
+                system_logger.warning(f"[Telegram] getUpdates failed: {e}")
+                tg_status += f"\n⚠️ getUpdates: {e}"
+
+        except Exception as e:
+            tg_status = f"🔴 ошибка: {e}"
 
         lines = [
             f"{status_emoji} *Jinx Status*",
@@ -265,6 +299,8 @@ class AiogramEvents:
             f"Temperature: {s.temperature}",
             f"Heartbeat: {s.heartbeat_interval}s",
             f"Missed tools: {s.missed_tool_calls}",
+            "",
+            f"Telegram: {tg_status}",
         ]
         await message.reply("\n".join(lines), parse_mode="Markdown")
 
