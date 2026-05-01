@@ -1,12 +1,17 @@
 import asyncio
+import json
+import os
+from pathlib import Path
+
 from aiogram import Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, BotCommand, BotCommandScopeAllPrivateChats
 
 from src.utils.event.bus import EventBus
 from src.utils.event.registry import Events
 from src.utils.logger import system_logger
 
 from src.l0_state.interfaces.state import AiogramState
+from src.l0_state.agent.state import AgentState, AgentStatus
 from src.l2_interfaces.telegram.aiogram.client import AiogramClient
 
 
@@ -21,10 +26,14 @@ class AiogramEvents:
         aiogram_client: AiogramClient,
         state: AiogramState,
         event_bus: EventBus,
+        agent_state: AgentState,
+        config_path: str | None = None,
     ):
         self.client = aiogram_client
         self.state = state
         self.bus = event_bus
+        self.agent_state = agent_state
+        self._config_path = config_path or os.path.join(os.getcwd(), "config", "models.json")
 
         self.dp = Dispatcher()
         self._polling_task: asyncio.Task | None = None
@@ -37,7 +46,29 @@ class AiogramEvents:
 
         bot = self.client.bot()
 
-        # Регистрация хендлеров
+        # Регистрация команд
+        self.dp.message.register(self._cmd_restart, F.text == "/restart")
+        self.dp.message.register(self._cmd_status, F.text == "/status")
+        self.dp.message.register(self._cmd_models, F.text == "/models")
+        self.dp.message.register(self._cmd_stop, F.text == "/stop")
+        self.dp.message.register(self._cmd_help, F.text == "/help")
+
+        # Регистрируем меню команд в Telegram
+        try:
+            await bot.set_my_commands(
+                [
+                    BotCommand(command="restart", description="Перезагрузить Jinx"),
+                    BotCommand(command="status", description="Статус агента"),
+                    BotCommand(command="models", description="Список моделей"),
+                    BotCommand(command="stop", description="Остановить Jinx"),
+                    BotCommand(command="help", description="Помощь"),
+                ],
+                scope=BotCommandScopeAllPrivateChats(),
+            )
+        except Exception as e:
+            system_logger.warning(f"[Telegram] Не удалось зарегистрировать меню: {e}")
+
+        # Регистрация хендлеров сообщений
         self.dp.message.register(self._on_private_message, F.chat.type == "private")
         self.dp.message.register(
             self._on_group_message, F.chat.type.in_({"group", "supergroup"})
@@ -181,3 +212,82 @@ class AiogramEvents:
         }
 
         await self.bus.publish(Events.AIOGRAM_CHAT_ACTION, **payload)
+
+    # ===========================================
+    # COMMAND HANDLERS
+    # ===========================================
+
+    async def _cmd_help(self, message: Message):
+        """Показать список команд."""
+        lines = [
+            "⚔️ *Jinx Commands:*",
+            "",
+            "/status — текущее состояние",
+            "/models — список доступных моделей",
+            "/restart — перезагрузка",
+            "/stop — остановка",
+            "/help — эта справка",
+            "",
+            "Модель можно сменить через Dashboard.",
+        ]
+        await message.reply("\n".join(lines), parse_mode="Markdown")
+
+    async def _cmd_status(self, message: Message):
+        """Показать статус агента."""
+        s = self.agent_state
+        status_emoji = {
+            AgentStatus.IDLE: "💤",
+            AgentStatus.THINKING: "🧠",
+            AgentStatus.ACTING: "⚡",
+            AgentStatus.ERROR: "🔴",
+        }.get(s.state, "❓")
+
+        lines = [
+            f"{status_emoji} *Jinx Status*",
+            "",
+            f"Model: `{s.llm_model}`",
+            f"Step: {s.current_step}/{s.max_react_steps}",
+            f"Uptime: {s.get_uptime()}",
+            f"Temperature: {s.temperature}",
+            f"Heartbeat: {s.heartbeat_interval}s",
+            f"Missed tools: {s.missed_tool_calls}",
+        ]
+        await message.reply("\n".join(lines), parse_mode="Markdown")
+
+    async def _cmd_models(self, message: Message):
+        """Показать доступные модели."""
+        try:
+            with open(self._config_path) as f:
+                config = json.load(f)
+        except Exception:
+            await message.reply("❌ Не удалось прочитать config/models.json")
+            return
+
+        current_model = self.agent_state.llm_model
+        lines = ["📋 *Available Models:*", ""]
+
+        for pname, pdata in config.get("providers", {}).items():
+            models = pdata.get("models", [])
+            if not models:
+                continue
+            lines.append(f"*{pname}:*")
+            for m in models:
+                mid = m.get("id", "?")
+                marker = " ◀️" if mid == current_model else ""
+                lines.append(f"  `{mid}{marker}`")
+            lines.append("")
+
+        lines.append("Сменить модель: Dashboard")
+        await message.reply("\n".join(lines), parse_mode="Markdown")
+
+    async def _cmd_restart(self, message: Message):
+        """Перезагрузить Jinx."""
+        await message.reply("🔄 Перезагрузка...")
+        system_logger.info("[Telegram] /restart — запрос перезагрузки от пользователя")
+        await self.bus.publish(Events.SYSTEM_REBOOT_REQUESTED)
+
+    async def _cmd_stop(self, message: Message):
+        """Остановить Jinx."""
+        await message.reply("⏹ Остановка...")
+        system_logger.info("[Telegram] /stop — запрос остановки от пользователя")
+        await self.bus.publish(Events.SYSTEM_SHUTDOWN_REQUESTED)

@@ -28,6 +28,7 @@ def setup_aiogram(system: "System", bot_token: str | None) -> List[Any]:
         aiogram_client=client,
         state=system.aiogram_state,
         event_bus=system.event_bus,
+        agent_state=system.agent_state,
     )
 
     # Регистрация навыков для агента
