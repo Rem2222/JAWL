@@ -1286,9 +1286,9 @@ function renderLeftPanel(d) {
   html += '<div class="card"><h3>⚙️ Модель</h3>';
   html += '<div class="val small" id="modelCurrentDisplay">' + (d.model_display || d.model || '—') + '</div>';
   html += '<div style="margin-top:6px">';
-  html += '<select id="providerSelect" onchange="onProviderChanged()" style="width:100%;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:4px 6px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:4px;font-family:\'Inter\',system-ui,sans-serif">';
+  html += '<select id="providerSelect" onchange="onProviderChanged()" style="width:100%;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:4px 6px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:4px;font-family:Inter,system-ui,sans-serif">';
   html += '</select>';
-  html += '<select id="modelSelect" style="width:100%;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:4px 6px;border-radius:var(--radius-sm);font-size:12px;font-family:\'Inter\',system-ui,sans-serif">';
+  html += '<select id="modelSelect" style="width:100%;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:4px 6px;border-radius:var(--radius-sm);font-size:12px;font-family:Inter,system-ui,sans-serif">';
   html += '</select>';
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:6px">';
@@ -1301,7 +1301,7 @@ function renderLeftPanel(d) {
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
   html += '<span style="color:var(--overlay0);font-size:11px">Тиков:</span>';
-  html += '<input id="ticksInput" type="number" min="1" max="30" value="' + (d.ticks_limit||15) + '" style="width:40px;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:2px 4px;border-radius:var(--radius-sm);font-size:12px;text-align:center;font-family:\'Inter\',system-ui,sans-serif">';
+  html += '<input id="ticksInput" type="number" min="1" max="30" value="' + (d.ticks_limit||15) + '" style="width:40px;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:2px 4px;border-radius:var(--radius-sm);font-size:12px;text-align:center;font-family:Inter,system-ui,sans-serif">';
   html += '<button class="provider-btn" onclick="applyTicks()" style="padding:2px 8px;font-size:11px">OK</button>';
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
