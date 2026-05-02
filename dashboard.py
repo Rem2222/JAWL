@@ -394,12 +394,25 @@ def get_thoughts(limit=100):
     for tid, ts, text in rows:
         full = (text or "")
         preview = full[:150] + ("..." if len(full) > 150 else "")
+        # Convert UTC timestamp to user timezone (from config)
+        ts_str = "—"
+        if ts and isinstance(ts, str):
+            try:
+                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                _cfg = yaml.safe_load(open('config/settings.yaml'))
+                _tz_offset = _cfg.get('system', {}).get('timezone', 3)
+                dt_utc = _dt.strptime(ts[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=_tz.utc)
+                dt_local = dt_utc.astimezone(_tz(_td(hours=_tz_offset)))
+                ts_str = dt_local.strftime("%H:%M")
+            except:
+                ts_str = str(ts)[:5] if len(str(ts)) >= 16 else str(ts)
         thoughts.append({
             "id": tid[:8],
             "ts": ts,
-            "text": preview,           # truncated for list view
-            "full_text": full,          # full text for expand
-            "is_long": len(full) > 150,  # flag: show expand button?
+            "time_formatted": ts_str,
+            "text": preview,
+            "full_text": full,
+            "is_long": len(full) > 150,
         })
     return thoughts
 
@@ -743,30 +756,52 @@ TEMPLATE = '''
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ agent_name }} Dashboard</title>
 <style>
-/* JINX STYLING — Neon Pink/Magenta Theme */
+/* Catppuccin Mocha Theme */
 :root {
-  --jinx-pink: #ff0080;
-  --jinx-blue: #00ccff;
-  --jinx-green: #00ff88;
-  --jinx-yellow: #ffaa00;
-  --jinx-red: #ff4444;
-  --card-bg: #12121a;
-  --text-primary: #c0c0c0;
-  --text-secondary: #888;
-  --text-muted: #555;
+  --red: #f38ba8;
+  --maroon: #eba0ac;
+  --peach: #fab387;
+  --yellow: #f9e2af;
+  --green: #a6e3a1;
+  --teal: #94e2d5;
+  --sky: #89dceb;
+  --sapphire: #74c7ec;
+  --blue: #89b4fa;
+  --lavender: #b4befe;
+  --text: #cdd6f4;
+  --subtext1: #bac2de;
+  --subtext0: #a6adc8;
+  --overlay2: #9399b2;
+  --overlay1: #7f849c;
+  --overlay0: #6c7086;
+  --surface2: #585b70;
+  --surface1: #45475a;
+  --surface0: #313244;
+  --base: #1e1e2e;
+  --mantle: #181825;
+  --crust: #11111b;
+  /* RGB decomposed for rgba() */
+  --red-rgb: 243,139,168;
+  --green-rgb: 166,227,161;
+  --pink: #f5c2e7;
+  --pink-rgb: 245,194,231;
+  --mauve: #cba6f7;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --transition: 200ms ease;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #0a0a0f; color: #c0c0c0; font-family: 'Courier New', monospace; font-size: 13px; }
+body { background: var(--base); color: var(--text); font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 14px; }
 h1 { 
-    color: #ff0080; 
+    color: var(--lavender); 
     padding: 12px 16px; 
-    border-bottom: 2px solid #ff0080; 
+    border-bottom: 2px solid var(--surface1); 
     font-size: 18px; 
     display: flex; 
     justify-content: space-between; 
     align-items: center;
-    text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff;
-    animation: glow 2s ease-in-out infinite alternate;
+    font-weight: 600;
 }
 
 h1 .crypto-header {
@@ -783,21 +818,21 @@ h1 .crypto-header {
 }
 
 .crypto-header .crypto-name {
-    color: #00ccff;
+    color: var(--blue);
     font-weight: bold;
 }
 
 .crypto-header .crypto-price {
-    color: #ddd;
-    font-family: 'Courier New', monospace;
+    color: var(--subtext1);
+    font-family: Inter, system-ui, -apple-system, sans-serif;
 }
 
 .crypto-header .crypto-change {
     font-size: 9px;
 }
 
-.crypto-header .crypto-change.up { color: #00ff88; }
-.crypto-header .crypto-change.down { color: #ff4444; }
+.crypto-header .crypto-change.up { color: var(--green); }
+.crypto-header .crypto-change.down { color: var(--red); }
 
 .bottom-bar {
     position: fixed;
@@ -805,30 +840,26 @@ h1 .crypto-header {
     left: 0;
     right: 0;
     height: 36px;
-    background: #0a0a12;
-    border-top: 1px solid #ff0080;
+    background: var(--crust);
+    border-top: 1px solid var(--surface0);
     display: flex;
     align-items: center;
     padding: 0 16px;
     gap: 8px;
-    font-size: 11px;
-    color: #888;
+    font-size: 12px;
+    color: var(--subtext0);
     z-index: 100;
-    box-shadow: 0 -2px 10px rgba(255,0,128,0.2);
 }
-.bottom-bar .bb-sep { color: #333; }
-#bb-status { color: #00ff88; font-weight: bold; }
-#bb-uptime { color: #ff69b4; }
-#bb-heartbeat { color: #00ccff; }
-#bb-cpu { color: #ffaa00; }
-#bb-ram { color: #ffaa00; }
+.bottom-bar .bb-sep { color: var(--surface0); }
+#bb-status { font-weight: bold; }
+#bb-status.online { color: var(--green); }
+#bb-status.offline { color: var(--red); }
+#bb-uptime { color: var(--subtext0); }
+#bb-heartbeat { color: var(--subtext0); }
+#bb-cpu { color: var(--subtext0); }
+#bb-ram { color: var(--subtext0); }
 
 /* JAWL Uptime moved to bottom bar (bb-jawl-uptime) */
-
-@keyframes glow {
-    from { text-shadow: 0 0 10px #ff0080, 0 0 20px #ff00ff; }
-    to { text-shadow: 0 0 15px #ff69b4, 0 0 30px #ff00ff; }
-}
 
 @keyframes glitch {
     0% { transform: translate(0); }
@@ -843,52 +874,54 @@ h1 .crypto-header {
 .left { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; }
 .left > * { overflow-x: hidden; }
 .right { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
-.card { background: #12121a; border: 1px solid #222; border-radius: 4px; padding: 10px; }
-.card:hover { border-color: #ff0080; box-shadow: 0 0 10px rgba(255,0,128,0.3); }
-.card h3 { color: #ff69b4; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #222; padding-bottom: 6px; }
-.log-box { flex: 0 0 160px; overflow-y: auto; overflow-x: hidden; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
-.log-box h3 { color: #ff69b4; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-.thoughts-box { flex: 1; overflow-y: auto; overflow-x: hidden; background: #0d0d14; border-radius: 4px; padding: 8px; border: 1px solid #222; }
-.thoughts-box h3 { color: #ff69b4; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.card { background: var(--surface0); border: 1px solid var(--surface1); border-radius: var(--radius-md); padding: 14px; }
+.card:hover { border-color: var(--blue); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.card h3 { color: var(--text); font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid var(--surface1); padding-bottom: 6px; }
+.log-box { flex: 0 0 160px; overflow-y: auto; overflow-x: hidden; background: var(--crust); border-radius: 4px; padding: 8px; border: 1px solid var(--surface0); }
+.log-box h3 { color: var(--overlay0); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.thoughts-box { flex: 1; overflow-y: auto; overflow-x: hidden; background: var(--crust); border-radius: 4px; padding: 8px; border: 1px solid var(--surface0); }
+.thoughts-box h3 { color: var(--overlay0); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .provider-btns { display: flex; gap: 6px; margin-top: 8px; }
-.provider-btn { background: #1a1a2e; border: 1px solid #ff69b4; color: #ff69b4; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
-.provider-btn:hover { background: #ff69b4; color: #0a0a0f; }
-.provider-status { font-size: 10px; color: #555; margin-top: 4px; min-height: 14px; }
+.provider-btn { background: var(--surface1); color: var(--text); border: 1px solid var(--surface1); border-radius: var(--radius-sm); padding: 4px 8px; cursor: pointer; font-size: 12px; transition: var(--transition); font-family: 'Inter', system-ui, sans-serif; }
+.provider-btn:hover { background: var(--surface2); border-color: var(--blue); }
+.provider-btn.danger { border-color: var(--red); color: var(--red); }
+.provider-btn.danger:hover { background: var(--red); color: var(--base); }
+.provider-status { font-size: 10px; color: var(--overlay0); margin-top: 4px; min-height: 14px; }
 
-/* Status colors — JINX PALETTE */
-.ok { color: #00ff88; }
-.warn { color: #ffaa00; }
-.error { color: #ff4444; }
-.offline { color: #ff0080; }
-.action { color: #00ffff; }
-.think { color: #ff69b4; }
+/* Status colors — Catppuccin */
+.ok { color: var(--green); }
+.warn { color: var(--yellow); }
+.error { color: var(--red); }
+.offline { color: var(--red); }
+.action { color: var(--blue); }
+.think { color: var(--pink); }
 
 /* Progress bar */
-.progress { height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, #ff0080, #ff00ff); transition: width 0.3s; }
+.progress { height: 6px; background: var(--surface0); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--pink), var(--mauve)); transition: width 0.3s; }
 
 /* Log items */
 .log-line { padding: 2px 4px; font-size: 11px; white-space: pre-wrap; word-break: break-word; overflow: hidden; text-overflow: ellipsis; }
-.log-line:hover { background: #1a1a25; }
-.log-line.error { color: #ff4444; background: rgba(255,68,68,0.1); }
-.log-line.action { color: #00ffff; }
-.log-line.think { color: #ff69b4; }
-.log-line.ok { color: #00ff88; }
-.log-line .ts { color: #444; margin-right: 8px; }
+.log-line:hover { background: var(--surface0); }
+.log-line.error { color: var(--red); background: rgba(var(--red-rgb), 0.1); }
+.log-line.action { color: var(--blue); }
+.log-line.think { color: var(--pink); }
+.log-line.ok { color: var(--green); }
+.log-line .ts { color: var(--overlay0); margin-right: 8px; }
 
 /* Error box */
-.error-box { background: rgba(255,68,68,0.1); border: 1px solid #ff4444; color: #ff4444; padding: 8px; border-radius: 4px; margin: 8px; font-size: 12px; }
+.error-box { background: rgba(var(--red-rgb), 0.1); border: 1px solid var(--red); color: var(--red); padding: 8px; border-radius: 4px; margin: 8px; font-size: 12px; }
 
 /* API colors */
-.api-on { color: #00ff88; }
-.api-off { color: #ff4444; }
+.api-on { color: var(--green); }
+.api-off { color: var(--red); }
 
 /* JINX additions */
-.res-label { color: #ff69b4; }
-.res-val.warn { color: #ffaa00; text-shadow: 0 0 5px #ffaa00; }
-.crypto-up { color: #00ff88; }
-.crypto-down { color: #ff4444; }
-.neon-text { color: #ff0080; text-shadow: 0 0 5px #ff0080; }
+.res-label { color: var(--pink); }
+.res-val.warn { color: var(--yellow); text-shadow: 0 0 5px var(--yellow); }
+.crypto-up { color: var(--green); }
+.crypto-down { color: var(--red); }
+.neon-text { color: var(--pink); text-shadow: 0 0 5px var(--pink); }
 
 
 /* Thoughts expand/collapse */
@@ -898,26 +931,31 @@ h1 .crypto-header {
     border-radius: 6px;
     padding: 6px 8px;
     margin-bottom: 4px;
+    background: var(--surface0);
+    border: 1px solid var(--surface1);
 }
+.thought-ts { color: var(--overlay0); font-size: 10px; margin-bottom: 2px; }
+.thought-text { color: var(--text); font-size: 12px; line-height: 1.4; }
 .thought-item:hover {
-    background: rgba(0, 255, 136, 0.05);
-    box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
+    background: var(--surface0);
+    box-shadow: 0 0 8px rgba(var(--green-rgb), 0.15);
 }
 .thought-item.expanded {
-    background: rgba(0, 255, 136, 0.08);
-    box-shadow: 0 0 12px rgba(0, 255, 136, 0.25);
+    background: var(--surface0);
+    border: 1px solid var(--surface1);
+    box-shadow: 0 0 12px rgba(var(--green-rgb), 0.25);
 }
 .thought-full {
     display: none;
-    color: #b0e0d0;
+    color: var(--subtext1);
     font-size: 11px;
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.5;
     margin-top: 6px;
     padding: 8px;
-    background: rgba(0,0,0,0.3);
-    border-left: 2px solid #00ff88;
+    background: var(--mantle);
+    border-left: 2px solid var(--green);
     border-radius: 4px;
 }
 .thought-item.expanded .thought-full {
@@ -925,7 +963,7 @@ h1 .crypto-header {
 }
 .thought-expand-hint {
     font-size: 9px;
-    color: #00ff88;
+    color: var(--green);
     opacity: 0.6;
     margin-top: 2px;
 }
@@ -940,25 +978,25 @@ h1 .crypto-header {
 .knowledge-search-input {
     width: 100%;
     padding: 8px 12px;
-    background: var(--card-bg);
-    border: 1px solid var(--jinx-pink);
+    background: var(--surface0);
+    border: 1px solid var(--pink);
     border-radius: 6px;
-    color: var(--text-primary);
+    color: var(--text);
     font-size: 13px;
     outline: none;
     transition: border-color 0.3s;
 }
 .knowledge-search-input:focus {
-    border-color: var(--jinx-blue);
-    box-shadow: 0 0 8px rgba(0, 200, 255, 0.3);
+    border-color: var(--blue);
+    box-shadow: 0 0 8px rgba(137,180,250, 0.3);
 }
 .knowledge-list {
     max-height: 500px;
     overflow-y: auto;
 }
 .knowledge-entry {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.06);
+    background: var(--surface0);
+    border: 1px solid var(--surface1);
     border-radius: 8px;
     padding: 10px 12px;
     margin-bottom: 8px;
@@ -966,40 +1004,41 @@ h1 .crypto-header {
     transition: all 0.2s;
 }
 .knowledge-entry:hover {
-    border-color: var(--jinx-pink);
-    box-shadow: 0 0 6px rgba(255, 0, 110, 0.2);
+    border-color: var(--pink);
+    box-shadow: 0 0 6px rgba(var(--pink-rgb), 0.2);
 }
 .knowledge-entry-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 4px;
+    color: var(--subtext1);
 }
 .knowledge-entry-time {
     font-size: 11px;
-    color: var(--text-muted);
+    color: var(--subtext0);
 }
 .knowledge-entry-chars {
     font-size: 10px;
-    color: var(--text-muted);
-    background: rgba(255,255,255,0.05);
+    color: var(--subtext0);
+    background: var(--surface0);
     padding: 2px 6px;
     border-radius: 4px;
 }
 .knowledge-entry-preview {
     font-size: 13px;
-    color: var(--text-secondary);
+    color: var(--subtext0);
     line-height: 1.4;
 }
 .knowledge-entry-full {
     display: none;
     font-size: 13px;
-    color: var(--text-primary);
+    color: var(--text);
     line-height: 1.5;
     white-space: pre-wrap;
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid rgba(255,255,255,0.08);
+    border-top: 1px solid var(--surface1);
 }
 .knowledge-entry.expanded .knowledge-entry-full {
     display: block;
@@ -1008,11 +1047,22 @@ h1 .crypto-header {
     display: none;
 }
 
+/* Drive elements */
+.drive-row { border-bottom: 1px solid var(--surface0); padding: 6px 0; }
+.drive-header { display: flex; justify-content: space-between; align-items: center; }
+.drive-name { color: var(--text); font-size: 12px; }
+.drive-pct { font-size: 11px; font-weight: bold; }
+.drive-bar { height: 4px; background: var(--surface0); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.drive-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.drive-fill.fill-ok { background: var(--green); }
+.drive-fill.fill-warn { background: var(--yellow); }
+.drive-fill.fill-crit { background: var(--red); }
+
 /* === CUSTOM SCROLLBARS — JAWL Theme === */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: #0a0a0f; }
-::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #ff0080; }
+::-webkit-scrollbar-track { background: var(--crust); }
+::-webkit-scrollbar-thumb { background: var(--surface1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--pink); }
 
 /* === MOBILE ADAPTATION — by Jinx 💙 === */
 
@@ -1110,7 +1160,7 @@ h1 .crypto-header {
         font-size: 10px;
     }
     
-    .task-list { margin: 0; padding-left: 16px; color: #aaa; }
+    .task-list { margin: 0; padding-left: 16px; color: var(--subtext0); }
 
     .task-item {
         font-size: 10px;
@@ -1168,7 +1218,7 @@ h1 .crypto-header {
     }
     
     button, .provider-btn {
-        -webkit-tap-highlight-color: #ff0080;
+        -webkit-tap-highlight-color: var(--pink);
     }
     
     .thoughts-box, .log-box, .left {
@@ -1196,7 +1246,7 @@ h1 .crypto-header {
       <h3>💡 Мысли</h3>
       {% for t in thoughts %}
       <div class="thought-item">
-        <div class="thought-ts">{{ t.ts }}</div>
+        <div class="thought-ts">{{ t.time_formatted or t.ts }}</div>
         <div class="thought-text">{{ t.text }}</div>
       </div>
       {% endfor %}
@@ -1222,7 +1272,7 @@ h1 .crypto-header {
   <span class="bb-sep">|</span>
   <span id="bb-ram"></span>
   <span class="bb-sep">|</span>
-  <span id="bb-jawl-uptime" style="color:#ff69b4;"></span>
+  <span id="bb-jawl-uptime" style="color:var(--pink);"></span>
 </div>
 
 <script>
@@ -1236,9 +1286,9 @@ function renderLeftPanel(d) {
   html += '<div class="card"><h3>⚙️ Модель</h3>';
   html += '<div class="val small" id="modelCurrentDisplay">' + (d.model_display || d.model || '—') + '</div>';
   html += '<div style="margin-top:6px">';
-  html += '<select id="providerSelect" onchange="onProviderChanged()" style="width:100%;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:12px;margin-bottom:4px">';
+  html += '<select id="providerSelect" onchange="onProviderChanged()" style="width:100%;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:4px 6px;border-radius:var(--radius-sm);font-size:12px;margin-bottom:4px;font-family:\'Inter\',system-ui,sans-serif">';
   html += '</select>';
-  html += '<select id="modelSelect" style="width:100%;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:4px 6px;border-radius:4px;font-size:12px">';
+  html += '<select id="modelSelect" style="width:100%;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:4px 6px;border-radius:var(--radius-sm);font-size:12px;font-family:\'Inter\',system-ui,sans-serif">';
   html += '</select>';
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:6px">';
@@ -1246,16 +1296,16 @@ function renderLeftPanel(d) {
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
   html += '<button id="btn-toolchoice" class="provider-btn" onclick="toggleToolChoice()">🔧 Tools: ON</button>';
-  html += '<span id="missedTools" style="color:#ff69b4;font-size:11px;margin-left:8px"></span>';
+  html += '<span id="missedTools" style="color:var(--pink);font-size:11px;margin-left:8px"></span>';
   setTimeout(function(){ loadToolChoice(); }, 500);
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
-  html += '<span style="color:#888;font-size:11px">Тиков:</span>';
-  html += '<input id="ticksInput" type="number" min="1" max="30" value="' + (d.ticks_limit||15) + '" style="width:40px;background:#1a1a2e;color:#ff69b4;border:1px solid #333;padding:2px 4px;border-radius:3px;font-size:12px;text-align:center">';
+  html += '<span style="color:var(--overlay0);font-size:11px">Тиков:</span>';
+  html += '<input id="ticksInput" type="number" min="1" max="30" value="' + (d.ticks_limit||15) + '" style="width:40px;background:var(--surface0);color:var(--text);border:1px solid var(--surface1);padding:2px 4px;border-radius:var(--radius-sm);font-size:12px;text-align:center;font-family:\'Inter\',system-ui,sans-serif">';
   html += '<button class="provider-btn" onclick="applyTicks()" style="padding:2px 8px;font-size:11px">OK</button>';
   html += '</div>';
   html += '<div class="provider-btns" style="margin-top:4px">';
-  html += '<button class="provider-btn" onclick="restartJAWL(this)" style="border-color:#ff4444;color:#ff4444">🔄 Restart</button>';
+  html += '<button class="provider-btn danger" onclick="restartJAWL(this)">🔄 Restart</button>';
   html += '</div>';
   html += '</div>';
 
@@ -1277,7 +1327,7 @@ function renderLeftPanel(d) {
   // Drives
   html += '<div class="card"><h3>🧠 Драйвы</h3>';
   for (let dr of d.drives) {
-    let col = dr.deficit >= 70 ? '#ff4444' : dr.deficit >= 40 ? '#ffaa00' : '#00ff88';
+    let col = dr.deficit >= 70 ? 'var(--red)' : dr.deficit >= 40 ? 'var(--yellow)' : 'var(--green)';
     let cls = dr.deficit >= 70 ? 'fill-crit' : dr.deficit >= 40 ? 'fill-warn' : 'fill-ok';
     html += '<div class="drive-row"><div class="drive-header"><span class="drive-name">' + dr.name + '</span><span class="drive-pct" style="color:' + col + '">' + dr.deficit + '%</span></div>';
     html += '<div class="drive-bar"><div class="drive-fill ' + cls + '" style="width:' + dr.deficit + '%"></div></div></div>';
@@ -1312,7 +1362,9 @@ function renderLeftPanel(d) {
   }
 
   // Bottom bar
-  document.getElementById('bb-status').textContent = d.status;
+  let bbStatus = document.getElementById('bb-status');
+  bbStatus.textContent = d.status;
+  bbStatus.className = d.status === 'online' ? 'online' : 'offline';
   document.getElementById('bb-uptime').textContent = '⏱ ' + d.uptime;
   document.getElementById('bb-heartbeat').textContent = '♥ ' + d.heartbeat;
   document.getElementById('bb-cpu').textContent = 'CPU ' + d.resources.cpu + '%';
@@ -1342,12 +1394,12 @@ async function loadThoughts() {
     let r = await fetch('/api/thoughts');
     let thoughts = await r.json();
     let box = document.getElementById('thoughtsBox');
-    let html = '<h3 style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:#12121a;padding:2px 0;">💡 Мысли <span style="color:#333;font-size:9px;">(кликни чтобы развернуть)</span></h3>';
+    let html = '<h3 style="color:var(--overlay0);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:var(--crust);padding:2px 0;">💡 Мысли <span style="color:var(--overlay0);font-size:9px;">(кликни чтобы развернуть)</span></h3>';
     for (let t of thoughts) {
       let isExpanded = expandedThoughts.has(t.id);
       let cls = isExpanded ? 'thought-item expanded' : 'thought-item';
       html += '<div class="' + cls + '" data-id="' + t.id + '" onclick="toggleThought(this)" title="Кликни для ' + (isExpanded ? 'сворачивания' : 'разворачивания') + '">';
-      html += '<div class="thought-ts">' + t.ts + '</div>';
+      html += '<div class="thought-ts">' + (t.time_formatted || t.ts || '') + '</div>';
       html += '<div class="thought-text">' + t.text + '</div>';
       if (t.is_long) {
         html += '<div class="thought-expand-hint">▼ показать полностью</div>';
@@ -1376,7 +1428,7 @@ async function loadLogs() {
     let r = await fetch('/api/logs');
     let lines = await r.json();
     let box = document.getElementById('logBox');
-    let html = '<h3 style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:#12121a;padding:2px 0;">📜 Логи</h3>';
+    let html = '<h3 style="color:var(--overlay0);font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;position:sticky;top:0;background:var(--crust);padding:2px 0;">📜 Логи</h3>';
     for (let l of lines) {
       if (!l.trim()) continue;
       let cls = 'log-line';
@@ -1524,8 +1576,8 @@ async function loadToolChoice() {
     let btn = document.getElementById("btn-toolchoice");
     if (btn) {
       btn.textContent = d.enabled ? "🔧 Tools: ON" : "🔧 Tools: OFF";
-      btn.style.color = d.enabled ? "#00ff88" : "#ff4444";
-      btn.style.borderColor = d.enabled ? "#00ff88" : "#ff4444";
+      btn.style.color = d.enabled ? "var(--green)" : "var(--red)";
+      btn.style.borderColor = d.enabled ? "var(--green)" : "var(--red)";
     }
     let miss = document.getElementById("missedTools");
     if (miss) { miss.textContent = d.missed_30min > 0 ? "⏭ " + d.missed_30min + " missed/30m" : ""; }
@@ -1557,8 +1609,8 @@ async function applyTicks() {
     let d = await r.json();
     if (d.ok) {
       document.getElementById("ticksInput").value = d.ticks_limit;
-      document.getElementById("ticksInput").style.borderColor = "#00ff88";
-      setTimeout(() => document.getElementById("ticksInput").style.borderColor = "#333", 1000);
+      document.getElementById("ticksInput").style.borderColor = "var(--green)";
+      setTimeout(() => document.getElementById("ticksInput").style.borderColor = "var(--surface1)", 1000);
     }
   } catch(e) { console.error(e); }
 }
@@ -1631,24 +1683,24 @@ async function drawChart() {
     if (!d.data.length) return;
     let max = Math.max(...d.data, 1);
     let step = w / Math.max(d.data.length - 1, 1);
-    ctx.strokeStyle = '#1a1a25'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'var(--surface0)'; ctx.lineWidth = 1;
     for (let i = 0; i < 4; i++) {
       let y = h * i / 3;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
-    ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 2;
+    ctx.strokeStyle = '#a6e3a1'; ctx.lineWidth = 2;
     ctx.beginPath();
     for (let i = 0; i < d.data.length; i++) {
       let x = i * step, y = h - (d.data[i] / max) * (h - 10) - 5;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.stroke();
-    ctx.fillStyle = '#00ff88';
+    ctx.fillStyle = '#a6e3a1';
     for (let i = 0; i < d.data.length; i++) {
       let x = i * step, y = h - (d.data[i] / max) * (h - 10) - 5;
       ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.28); ctx.fill();
     }
-    ctx.fillStyle = '#444'; ctx.font = '9px monospace';
+    ctx.fillStyle = '#6c7086'; ctx.font = '9px monospace';
     if (d.labels.length > 0) {
       ctx.fillText(d.labels[0], 2, h - 2);
       ctx.fillText(d.labels[d.labels.length-1], w - 30, h - 2);
@@ -1676,7 +1728,7 @@ function renderKnowledge(entries) {
     const list = document.getElementById('knowledge-list');
     if (!list) return;
     if (!entries.length) {
-        list.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 20px;">No entries found</div>';
+        list.innerHTML = '<div style="color: var(--subtext0); text-align: center; padding: 20px;">No entries found</div>';
         return;
     }
     let html = '';
