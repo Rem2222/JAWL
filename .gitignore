@@ -55,3 +55,8 @@ src/l3_agent/prompt/builder.py
 *.bak
 *.backup*
 .env.backup_*
+
+# API Keys and secrets
+.env
+config/providers.json
+config/models.json
